@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1e1b4b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Litpax Tasks</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ LOGIN ============ -->
+  <div id="loginView" class="login-wrap">
+    <div class="login-card fade-in">
+      <div class="login-logo">LT</div>
+      <h1 class="login-title">Litpax Tasks</h1>
+      <p class="muted">Enter your PIN to continue</p>
+      <form id="loginForm" autocomplete="off">
+        <input id="pin" class="input pin-input" type="password" inputmode="numeric" maxlength="6" placeholder="••••" aria-label="PIN" />
+        <button id="loginBtn" type="submit" class="btn btn-primary btn-block">Log in</button>
+      </form>
+      <div id="loginErr" class="err" role="alert"></div>
+    </div>
+  </div>
+
+  <!-- ============ APP ============ -->
+  <div id="appView" class="app hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand-side">
+        <span class="brand-mark">LT</span>
+        <span>Litpax Tasks</span>
+      </div>
+      <nav id="nav" class="nav"></nav>
+      <div class="side-foot">
+        <div class="me">
+          <div id="meAvatar" class="avatar"></div>
+          <div>
+            <div id="meName" class="me-name"></div>
+            <div id="meRole" class="me-role"></div>
+          </div>
+        </div>
+        <button id="logoutBtn" class="btn btn-side">Log out</button>
+      </div>
+    </aside>
+    <div id="scrim" class="scrim"></div>
+
+    <main class="content">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn menu-btn" aria-label="Menu">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h2 id="pageTitle" class="page-title"></h2>
+        <div id="topActions" class="top-actions"></div>
+      </header>
+      <section id="page" class="page"></section>
+    </main>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
