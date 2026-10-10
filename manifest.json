@@ -1,0 +1,13 @@
+{
+  "name": "Litpax Tasks",
+  "short_name": "Tasks",
+  "description": "Litpax Technology task manager with weekly scoring",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#1e1b4b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
