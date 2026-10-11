@@ -439,9 +439,25 @@ function route() {
 }
 /** After a save: fetch fresh data for the current screen, keeping it on screen meanwhile (no skeleton flash). */
 function refresh() {
-  if (!S.me) return;
+  if (!S.me) return Promise.resolve();
   S.mutGen++; S.silent = true; S.fresh = true;
-  try { VIEWS[S.view](); } finally { S.fresh = false; setTimeout(() => { S.silent = false; }, 0); }
+  let p;
+  try { p = VIEWS[S.view](); } finally { S.fresh = false; setTimeout(() => { S.silent = false; }, 0); }
+  return Promise.resolve(p);
+}
+
+/** Refresh button: fresh data for this screen + badge/users in parallel. */
+async function manualRefresh() {
+  const b = $('#refreshBtn');
+  if (!S.me || b.classList.contains('spin')) return;
+  b.classList.add('spin');
+  try {
+    await Promise.all([
+      refresh(),
+      call('init').then(r => { applyBoot(r); vcSet(vcKey('listTasks', myParams()), r.my); setPending(r.pending || 0); }).catch(() => {})
+    ]);
+    toast('Updated');
+  } finally { b.classList.remove('spin'); }
 }
 
 function closeSidebar() { $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); }
@@ -659,7 +675,7 @@ async function viewTasks() {
     Object.keys(map).forEach(id => $('#' + id).onchange = e => { f[map[id]] = e.target.value; f.page = 1; loadTaskTable(); });
     $('#tOverdue').onchange = e => { f.overdue = e.target.checked ? '1' : ''; f.page = 1; loadTaskTable(); };
   }
-  loadTaskTable();
+  return loadTaskTable();
 }
 
 function filterParams(f) {
@@ -761,6 +777,7 @@ async function viewMeeting() {
   const P = sum('Planned'), D = sum('Done'), O = sum('OnTime');
   const teamNd = P ? -Math.round((P - D) / P * 1000) / 10 : 0;
   const teamLate = P ? -Math.round((P - O) / P * 1000) / 10 : 0;
+  const teamScore = P ? Math.round(O / P * 1000) / 10 : '';
   const delayed = rows.filter(x => Number(x.AvgDelayDays) > 0);
   const avgDelay = delayed.length ? (delayed.reduce((s, x) => s + Number(x.AvgDelayDays), 0) / delayed.length).toFixed(1) : '0';
   const isCur = r.week === mondayOf(todayStr());
@@ -777,26 +794,27 @@ async function viewMeeting() {
       ${!isCur ? '<button class="btn btn-ghost btn-sm" id="wCur">This week</button>' : '<button class="btn btn-ghost btn-sm" id="wLast">Last week</button>'}
       <span class="grow"></span>
       ${isMgr() && depts.length > 1 ? `<select class="select" id="wDept" style="width:auto">${opts(depts, w.dept, 'All departments')}</select>` : ''}
-      ${isMgr() ? `<button class="btn btn-ghost btn-sm" id="wTargets">${IC.target} Set targets</button>` : ''}
+      ${isMgr() ? `<button class="btn btn-ghost btn-sm" id="wTargets">${IC.target} Set commitments</button>` : ''}
       ${r.canFreeze ? `<button class="btn btn-ghost btn-sm" id="wFreeze">${IC.lock} ${r.frozen ? 'Re-freeze' : 'Freeze week'}</button>` : ''}
       <button class="btn btn-ghost btn-sm" id="wExport">${IC.download} CSV</button>
       ${isMgr() ? `<button class="btn btn-primary btn-sm" id="wPresent">${IC.screen} Present</button>` : ''}
     </div>
 
     <div class="kpis">
-      <div class="card kpi accent"><div class="kpi-label">% Work Not Done</div><div class="kpi-value">${fmtPct(teamNd)}</div><div class="kpi-sub">${isMgr() ? 'Team' : 'You'} · ${D}/${P} done</div></div>
-      <div class="card kpi accent"><div class="kpi-label">% Not Done On Time</div><div class="kpi-value">${fmtPct(teamLate)}</div><div class="kpi-sub">${O}/${P} on time</div></div>
-      <div class="card kpi"><div class="kpi-label">Planned Tasks</div><div class="kpi-value">${P}</div></div>
+      <div class="card kpi accent"><div class="kpi-label">Score</div><div class="kpi-value">${fmtPct(teamScore)}</div><div class="kpi-sub">${isMgr() ? 'Team' : 'You'} · ${O}/${P} on time</div></div>
+      <div class="card kpi"><div class="kpi-label">% Work Not Done</div><div class="kpi-value">${fmtPct(teamNd)}</div><div class="kpi-sub">${D}/${P} done</div></div>
+      <div class="card kpi"><div class="kpi-label">% Not Done On Time</div><div class="kpi-value">${fmtPct(teamLate)}</div><div class="kpi-sub">${P} planned</div></div>
       <div class="card kpi"><div class="kpi-label">Avg Delay</div><div class="kpi-value">${avgDelay}<span class="small muted"> days</span></div></div>
       <div class="card kpi ${r.overdue.length ? 'alert' : ''}"><div class="kpi-label">Open Overdue</div><div class="kpi-value">${r.overdue.length}</div></div>
     </div>
 
     <div class="card fade-in">
       <div class="tbl-wrap"><table class="tbl scores">
-        <thead><tr><th>Employee</th><th class="num">Planned</th><th class="num">Done</th><th class="num">On Time</th>
+        <thead><tr><th>Employee</th><th class="num">Score</th><th class="num">Committed</th><th>Result</th>
+          <th class="num">Planned</th><th class="num">Done</th><th class="num">On Time</th>
           <th class="num">% Not Done</th><th class="num">% Not On Time</th><th class="num">Weighted</th>
-          <th class="num">Avg Delay</th><th class="num">Revisions</th><th class="num">Recurring</th><th class="num">Target</th><th>Result</th><th>Trend</th></tr></thead>
-        <tbody>${rows.map(x => scoreRow(x, r.trend[x.UserID] || [])).join('') || '<tr><td colspan="13" class="empty">No data for this week.</td></tr>'}</tbody>
+          <th class="num">Avg Delay</th><th class="num">Revisions</th><th class="num">Recurring</th><th>Trend</th></tr></thead>
+        <tbody>${rows.map(x => scoreRow(x, r.trend[x.UserID] || [])).join('') || '<tr><td colspan="14" class="empty">No data for this week.</td></tr>'}</tbody>
       </table></div>
     </div>
 
@@ -806,10 +824,11 @@ async function viewMeeting() {
         <td>${esc(niceDate(t.DueDate))}</td><td class="num txt-bad">${daysBetween(t.DueDate, todayStr())}</td><td class="num">${Number(t.Revisions) || ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 
     <div class="legend">
+      <b>Score</b> = tasks done on time ÷ planned × 100 &nbsp;·&nbsp; <b>Committed</b> = score the employee promised in the previous meeting; <b>Met</b> when Score ≥ Committed &nbsp;·&nbsp;
       <b>% Not Done</b> = −(Planned − Done) ÷ Planned × 100 &nbsp;·&nbsp; <b>% Not On Time</b> = −(Planned − On-time) ÷ Planned × 100 &nbsp;·&nbsp;
       <b>Weighted</b> = % not done on time, weighted by priority (${S.cfg.priorities.map(p => esc(p.name) + ' ×' + p.weight).join(', ')}) &nbsp;·&nbsp;
       <b>Avg Delay</b> = average days late across late or pending tasks &nbsp;·&nbsp; <b>Recurring</b> = daily/weekly tasks done on time &nbsp;·&nbsp;
-      <b>Target</b> = maximum % committed for this week. Week runs Monday–Sunday and is frozen automatically on Monday at 00:00 IST.
+      Week runs Monday–Sunday and is frozen automatically on Monday at 00:00 IST.
       ${r.live ? ' Live view counts tasks due before today, plus today\'s tasks already done.' : ''}
     </div>`;
 
@@ -830,43 +849,46 @@ async function viewMeeting() {
   };
   $('#wExport').onclick = () => exportCSV('Weekly_Score_' + r.week, [
     { l: 'Week Start', k: 'WeekStart' }, { l: 'Employee', k: 'Name' }, { l: 'Department', k: 'Department' },
+    { l: 'Score %', k: scoreOf }, { l: 'Committed %', k: committedOf }, { l: 'Result', k: x => targetResult(x).label },
     { l: 'Planned', k: 'Planned' }, { l: 'Done', k: 'Done' }, { l: 'On Time', k: 'OnTime' },
     { l: '% Not Done', k: 'NotDonePct' }, { l: '% Not On Time', k: 'LatePct' }, { l: 'Weighted %', k: 'WeightedPct' },
-    { l: 'Avg Delay (days)', k: 'AvgDelayDays' }, { l: 'Revisions', k: 'Revisions' }, { l: 'Recurring %', k: 'RecurringPct' },
-    { l: 'Target Not Done', k: 'TargetNotDone' }, { l: 'Target Not On Time', k: 'TargetLate' }, { l: 'Result', k: x => targetResult(x).label }
+    { l: 'Avg Delay (days)', k: 'AvgDelayDays' }, { l: 'Revisions', k: 'Revisions' }, { l: 'Recurring %', k: 'RecurringPct' }
   ], rows);
   const pres = $('#wPresent');
   if (pres) pres.onclick = togglePresent;
 }
 
+/** Score = % of planned tasks done on time (= 100 + "% Not On Time"). Blank when nothing was planned. */
+function scoreOf(x) { return Number(x.Planned) ? Math.round((100 + Number(x.LatePct)) * 10) / 10 : ''; }
+/** Committed score is saved as the allowed "% not on time" (score 70% is saved as 30). */
+function committedOf(x) {
+  return x.TargetLate === '' || x.TargetLate === undefined || x.TargetLate === null ? '' : 100 - Number(x.TargetLate);
+}
+
 function targetResult(x) {
-  const hasNd = x.TargetNotDone !== '' && x.TargetNotDone !== undefined, hasLate = x.TargetLate !== '' && x.TargetLate !== undefined;
-  if (!hasNd && !hasLate) return { label: '', cls: '' };
-  const okNd = !hasNd || -Number(x.NotDonePct) <= Number(x.TargetNotDone);
-  const okLate = !hasLate || -Number(x.LatePct) <= Number(x.TargetLate);
-  return okNd && okLate ? { label: 'Met', cls: 'st-done' } : { label: 'Missed', cls: 'st-bad' };
+  const c = committedOf(x), s = scoreOf(x);
+  if (c === '' || s === '') return { label: '', cls: '' };
+  return s >= c ? { label: 'Met', cls: 'st-done' } : { label: 'Missed', cls: 'st-bad' };
 }
 
 function scoreRow(x, trend) {
-  const res = targetResult(x);
-  const cls = (val, target) => target === '' || target === undefined ? '' : (-Number(val) <= Number(target) ? 'good' : 'bad');
+  const res = targetResult(x), score = scoreOf(x), committed = committedOf(x);
   const pts = trend.concat([{ week: x.WeekStart, late: x.LatePct, cur: true }]).slice(-5);
-  const bars = pts.map(p => `<span class="${p.cur ? 'cur' : ''}" style="height:${Math.max(3, Math.round((100 + Number(p.late)) / 100 * 22))}px" title="${esc(niceDate(p.week))}: ${esc(fmtPct(p.late))} not on time"></span>`).join('');
+  const bars = pts.map(p => `<span class="${p.cur ? 'cur' : ''}" style="height:${Math.max(3, Math.round((100 + Number(p.late)) / 100 * 22))}px" title="${esc(niceDate(p.week))}: score ${esc(fmtPct(100 + Number(p.late)))}"></span>`).join('');
   const prev = trend.length ? Number(trend[trend.length - 1].late) : null;
   const arrow = prev === null ? '' : Number(x.LatePct) > prev ? '<span class="txt-ok small">▲</span>' : Number(x.LatePct) < prev ? '<span class="txt-bad small">▼</span>' : '<span class="faint small">=</span>';
-  const tgt = x.TargetNotDone === '' && x.TargetLate === '' ? '—'
-    : `${x.TargetNotDone !== '' ? '−' + esc(x.TargetNotDone) + '%' : '—'} / ${x.TargetLate !== '' ? '−' + esc(x.TargetLate) + '%' : '—'}`;
   return `<tr>
     <td><div style="font-weight:600">${esc(x.Name)}</div><div class="faint small">${esc(x.Department || '')}</div></td>
+    <td class="num score ${res.label === 'Met' ? 'good' : res.label === 'Missed' ? 'bad' : ''}">${fmtPct(score)}</td>
+    <td class="num">${fmtPct(committed)}</td>
+    <td>${res.label ? `<span class="badge ${res.cls}">${res.label}</span>` : '<span class="faint">—</span>'}</td>
     <td class="num">${x.Planned}</td><td class="num">${x.Done}</td><td class="num">${x.OnTime}</td>
-    <td class="num score ${cls(x.NotDonePct, x.TargetNotDone)}">${fmtPct(x.NotDonePct)}</td>
-    <td class="num score ${cls(x.LatePct, x.TargetLate)}">${fmtPct(x.LatePct)}</td>
+    <td class="num">${fmtPct(x.NotDonePct)}</td>
+    <td class="num">${fmtPct(x.LatePct)}</td>
     <td class="num">${fmtPct(x.WeightedPct)}</td>
     <td class="num">${Number(x.AvgDelayDays) ? esc(x.AvgDelayDays) + 'd' : '—'}</td>
     <td class="num">${Number(x.Revisions) || '—'}</td>
     <td class="num">${x.RecurringPct === '' ? '—' : fmtPct(x.RecurringPct)}</td>
-    <td class="num small">${tgt}</td>
-    <td>${res.label ? `<span class="badge ${res.cls}">${res.label}</span>` : '<span class="faint">—</span>'}</td>
     <td><span class="trend">${bars}</span> ${arrow}</td></tr>`;
 }
 
@@ -881,37 +903,36 @@ document.addEventListener('fullscreenchange', () => { if (!document.fullscreenEl
 
 function targetsForm(r) {
   const list = r.rows.slice().sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
-  const draftKey = 'targets_' + r.nextWeek;
+  const draftKey = 'commit_' + r.nextWeek;
   const draft = store.get(draftKey) || {};
-  const val = (uid, k) => draft[uid] && draft[uid][k] !== undefined ? draft[uid][k] : (r.nextTargets[uid] ? r.nextTargets[uid][k] : '');
+  const saved = uid => r.nextTargets[uid] && r.nextTargets[uid].late !== '' ? 100 - Number(r.nextTargets[uid].late) : '';
+  const val = uid => draft[uid] !== undefined ? draft[uid] : saved(uid);
   const m = modal({
-    title: 'Targets for ' + weekLabel(r.nextWeek), wide: true,
-    body: `<p class="muted small" style="margin-top:0">Enter the maximum % each employee commits to for next week (e.g. 10 means −10%). Leave blank to skip.</p>
-      <form id="tgForm"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th class="num">This week</th><th class="num">Max % Not Done</th><th class="num">Max % Not On Time</th></tr></thead>
+    title: 'Commitments for ' + weekLabel(r.nextWeek), wide: true,
+    body: `<p class="muted small" style="margin-top:0">Ask each employee what score they will achieve next week (e.g. 70 = 70% of tasks done on time).
+      It shows as <b>Committed</b> next to their actual score in the next meeting. Leave blank to skip.</p>
+      <form id="tgForm"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th class="num">Score</th><th class="num">Had committed</th><th class="num">Next week commitment %</th></tr></thead>
       <tbody>${list.map(x => `<tr><td>${esc(x.Name)}<div class="faint small">${esc(x.Department || '')}</div></td>
-        <td class="num small muted">${fmtPct(x.NotDonePct)} / ${fmtPct(x.LatePct)}</td>
-        <td class="num"><input class="input target-in" type="number" min="0" max="100" step="1" name="${esc(x.UserID)}|nd" value="${esc(val(x.UserID, 'nd'))}" /></td>
-        <td class="num"><input class="input target-in" type="number" min="0" max="100" step="1" name="${esc(x.UserID)}|late" value="${esc(val(x.UserID, 'late'))}" /></td></tr>`).join('')}</tbody></table></div></form>`,
-    foot: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save targets</button>`
+        <td class="num"><b>${fmtPct(scoreOf(x))}</b></td>
+        <td class="num small muted">${fmtPct(committedOf(x))}</td>
+        <td class="num"><input class="input target-in" type="number" min="0" max="100" step="1" name="${esc(x.UserID)}" value="${esc(val(x.UserID))}" /></td></tr>`).join('')}</tbody></table></div></form>`,
+    foot: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save commitments</button>`
   });
   const form = m.q('#tgForm');
-  const collect = () => {
-    const out = {};
-    $$('input', form).forEach(i => { const [uid, k] = i.name.split('|'); (out[uid] = out[uid] || {})[k] = i.value.trim(); });
-    return out;
-  };
+  const collect = () => { const out = {}; $$('input', form).forEach(i => { out[i.name] = i.value.trim(); }); return out; };
   form.addEventListener('input', () => store.set(draftKey, collect()));
   m.q('[data-cancel]').onclick = m.close;
   const reqId = newReqId();
   m.q('[data-save]').onclick = e => busy(e.currentTarget, async () => {
     const data = collect();
     const bad = $$('input', form).find(i => i.value !== '' && (isNaN(Number(i.value)) || Number(i.value) < 0 || Number(i.value) > 100));
-    if (bad) { bad.classList.add('invalid'); bad.focus(); toast('Targets must be between 0 and 100.', false); return; }
-    const items = Object.keys(data).map(uid => ({ UserID: uid, TargetNotDone: data[uid].nd, TargetLate: data[uid].late }));
+    if (bad) { bad.classList.add('invalid'); bad.focus(); toast('Commitment must be between 0 and 100.', false); return; }
+    // Saved as allowed "% not on time": score 70 → 30
+    const items = Object.keys(data).map(uid => ({ UserID: uid, TargetNotDone: '', TargetLate: data[uid] === '' ? '' : String(100 - Number(data[uid])) }));
     try {
       await call('saveCommitments', { week: r.nextWeek, items: JSON.stringify(items), reqId });
       store.del(draftKey);
-      toast('Targets saved');
+      toast('Commitments saved');
       m.close();
       refresh();
     } catch (ex) { toast(ex.message + ' Your entries are kept.', false); }
@@ -1361,6 +1382,14 @@ $('#logoutBtn').onclick = () => logout(false);
 $('#menuBtn').onclick = () => { $('#sidebar').classList.add('open'); $('#scrim').classList.add('show'); };
 $('#scrim').onclick = closeSidebar;
 window.addEventListener('hashchange', route);
+$('#refreshBtn').onclick = manualRefresh;
+
+/* Auto refresh when the app comes back after more than a minute in the background */
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (S.me && hiddenAt && Date.now() - hiddenAt > 60000 && S.view !== 'settings' && !$('#modalRoot').children.length) manualRefresh();
+});
 
 /* Delegated: open task / tick done (works in every view and modal) */
 document.addEventListener('click', e => {
