@@ -115,6 +115,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: grid; place-items: center; cursor: pointer; transition: border-color .18s; }
 .icon-btn:hover { border-color: var(--accent); }
 .icon-btn svg { width: 18px; height: 18px; stroke: var(--text); fill: none; stroke-width: 2; stroke-linecap: round; }
+.icon-btn.spin svg { animation: spin .8s linear infinite; }
 
 /* ---------------- Cards / KPIs ---------------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
