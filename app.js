@@ -7,7 +7,8 @@
 const S = {
   token: null, me: null, team: [], cfg: null, users: [], userMap: {}, projects: [], projMap: {},
   view: null, silent: false, taskCache: {}, pending: 0,
-  board: null, tf: null, mw: null, apprTab: 'Pending', draft: null
+  board: null, tf: null, mw: null, apprTab: 'Pending', draft: null,
+  cacheOnly: false, fresh: false, mutGen: 0, revalidating: {}, inflight: {}
 };
 const DONE = 'Done';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -26,6 +27,35 @@ const store = {
   set(k, v) { try { localStorage.setItem('lt_' + k, JSON.stringify(v)); } catch (e) {} },
   del(k) { try { localStorage.removeItem('lt_' + k); } catch (e) {} }
 };
+
+/* ---------------- Speed: view cache (show saved data instantly, refresh in background) ---------------- */
+const VC = { mem: {}, uid: '' };
+const vcKey = (action, params) => action + '|' + JSON.stringify(params || {});
+const vcLsKey = key => 'vc_' + VC.uid + '_' + key;
+function vcGet(key) { return VC.mem[key] || null; }
+function vcSet(key, val) { VC.mem[key] = val; store.set(vcLsKey(key), val); }
+function vcLoadAll(uid) {
+  VC.uid = uid; VC.mem = {};
+  try {
+    const pre = 'lt_vc_' + uid + '_';
+    Object.keys(localStorage).filter(k => k.startsWith(pre)).forEach(k => {
+      try { VC.mem[k.slice(pre.length)] = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+    });
+  } catch (e) {}
+}
+function vcClear() {
+  VC.mem = {};
+  try { Object.keys(localStorage).filter(k => k.startsWith('lt_vc_')).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+}
+/** Put an updated task into every cached task list, so all screens agree without a reload. */
+function patchTask(t) {
+  S.taskCache[t.TaskID] = t;
+  Object.keys(VC.mem).forEach(k => {
+    if (k.indexOf('listTasks|') !== 0) return;
+    const r = VC.mem[k], i = r && r.rows ? r.rows.findIndex(x => x.TaskID === t.TaskID) : -1;
+    if (i >= 0) { r.rows[i] = t; vcSet(k, r); }
+  });
+}
 
 /* ---------------- Icons ---------------- */
 const IC = {
@@ -184,6 +214,52 @@ function confirmBox(title, text, okLabel = 'Confirm', danger = true) {
 
 function skel(n = 6) { if (!S.silent) $('#page').innerHTML = '<div class="skeleton"></div>'.repeat(n); }
 
+/**
+ * Speed: returns saved data instantly when available and refreshes it in the background
+ * (re-renders only if something changed). First visit shows a skeleton and waits.
+ * opts.raw = caller handles skeleton + errors (throws on failure).
+ */
+async function fetchSWR(view, action, params, retry, opts = {}) {
+  const key = vcKey(action, params);
+  const hit = (S.fresh || opts.noCache) ? null : vcGet(key);
+  if (hit) {
+    if (!S.cacheOnly) revalidate(view, key, action, params);
+    return hit;
+  }
+  if (opts.raw) { const r = await call(action, params); vcSet(key, r); return r; }
+  skel(opts.skel);
+  const r = await load(() => call(action, params), retry);
+  if (r) vcSet(key, r);
+  return r;
+}
+function revalidate(view, key, action, params) {
+  if (S.revalidating[key]) return;
+  S.revalidating[key] = true;
+  const gen = S.mutGen;
+  call(action, params).then(r => {
+    if (gen !== S.mutGen) return;                      // a change happened meanwhile; this answer may be old
+    const changed = JSON.stringify(r) !== JSON.stringify(vcGet(key));
+    vcSet(key, r);
+    if (changed && S.view === view) rerender();
+  }).catch(() => {}).finally(() => { delete S.revalidating[key]; });
+}
+/** Re-draw the current screen from saved data only (no network). */
+function rerender() {
+  if (!S.me || !S.view) return;
+  S.cacheOnly = true; S.silent = true;
+  try { VIEWS[S.view](); } finally { S.cacheOnly = false; setTimeout(() => { S.silent = false; }, 0); }
+}
+function prefetch() {
+  const jobs = [['listTasks', boardParams()], ['weeklyScores', meetingParams()], ['listRevisions', { status: 'Pending' }]];
+  if (isMgr()) jobs.push(['listTemplates', {}]);
+  const gen = S.mutGen;
+  jobs.forEach(([a, p]) => call(a, p).then(r => { if (gen === S.mutGen) vcSet(vcKey(a, p), r); }).catch(() => {}));
+}
+function nowStamp() {
+  const d = new Date();
+  return todayStr() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
 /** Runs a loader; on failure shows a retry screen. Returns result or null. */
 async function load(fn, retry) {
   try { return await fn(); }
@@ -280,50 +356,57 @@ async function doLogin(e) {
       S.token = r.token;
       store.set('session', { token: r.token });
       $('#pin').value = '';
-      await boot();
+      startApp(r);                     // login already carries all startup data: no extra calls
     } catch (ex) { err.textContent = ex.message; }
   });
 }
 
-async function boot() {
-  const r = await call('bootstrap');
-  applyBoot(r);
+/** Show the app from startup data (from login, init, or the last session's saved copy). */
+function startApp(b) {
+  applyBoot(b);
+  vcLoadAll(S.me.id);
+  if (b.my) vcSet(vcKey('listTasks', myParams()), b.my);
   $('#loginView').classList.add('hidden');
   $('#appView').classList.remove('hidden');
+  paintShell();
+  setPending(b.pending || 0);
+  S.cacheOnly = true;                  // data is fresh (or about to be refreshed by init): no duplicate fetch
+  try { route(); } finally { S.cacheOnly = false; }
+  setTimeout(prefetch, 400);
+}
+
+function paintShell() {
   $('#meName').textContent = S.me.name;
   $('#meRole').textContent = S.me.role + (S.me.dept ? ' · ' + S.me.dept : '');
   $('#meAvatar').textContent = initials(S.me.name);
   buildNav();
-  route();
-  refreshPending();
+  setPending(S.pending);
 }
 
 function applyBoot(r) {
   S.me = r.me; S.team = r.team; S.cfg = r.config; S.users = r.users; S.projects = r.projects;
   S.userMap = {}; r.users.forEach(u => S.userMap[u.UserID] = u);
   S.projMap = {}; r.projects.forEach(p => S.projMap[p.ProjectID] = p);
+  store.set('boot', { me: r.me, team: r.team, config: r.config, users: r.users, projects: r.projects, pending: S.pending });
 }
 async function reloadBoot() { applyBoot(await call('bootstrap')); }
 
+function setPending(n) {
+  S.pending = n;
+  const b = $('#nav [data-id="approvals"] .nav-badge');
+  if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+}
+
 function logout(expired) {
   S.token = null; S.me = null;
-  store.del('session');
+  store.del('session'); store.del('boot');
+  vcClear(); S.taskCache = {}; S.board = S.tf = S.mw = null;
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
   $('#modalRoot').innerHTML = '';
   document.body.classList.remove('present');
   if (expired) $('#loginErr').textContent = 'Session expired. Please log in again.';
   setTimeout(() => $('#pin').focus(), 50);
-}
-
-async function refreshPending() {
-  if (!isMgr()) return;
-  try {
-    const r = await call('listRevisions', { status: 'Pending' });
-    S.pending = r.rows.filter(x => x.canReview).length;
-    const b = $('#nav [data-id="approvals"] .nav-badge');
-    if (b) { b.textContent = S.pending; b.classList.toggle('hidden', !S.pending); }
-  } catch (e) {}
 }
 
 /* =================================================================
@@ -354,18 +437,22 @@ function route() {
   S.silent = false;
   VIEWS[id]();
 }
-/** Re-render current view without skeleton flash */
-function refresh() { S.silent = true; VIEWS[S.view](); setTimeout(() => { S.silent = false; }, 0); }
+/** After a save: fetch fresh data for the current screen, keeping it on screen meanwhile (no skeleton flash). */
+function refresh() {
+  if (!S.me) return;
+  S.mutGen++; S.silent = true; S.fresh = true;
+  try { VIEWS[S.view](); } finally { S.fresh = false; setTimeout(() => { S.silent = false; }, 0); }
+}
 
 function closeSidebar() { $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); }
 
 /* =================================================================
    VIEW: My Tasks
    ================================================================= */
+const myParams = () => ({ scope: 'my', active: '1', pageSize: 1000 });
 async function viewMy() {
   setTop('My Tasks', newTaskBtn()); bindNewTask();
-  skel();
-  const r = await load(() => call('listTasks', { scope: 'my', active: '1', pageSize: 1000 }), viewMy);
+  const r = await fetchSWR('my', 'listTasks', myParams(), viewMy);
   if (!r || S.view !== 'my') return;
   cacheTasks(r.rows);
   const today = todayStr(), ws = mondayOf(today), we = addDays(ws, 6);
@@ -428,32 +515,49 @@ function taskRow(t, { showAssignee = false } = {}) {
   </div>`;
 }
 
-async function toggleDone(id, btn) {
+function toggleDone(id) {
   const t = S.taskCache[id];
-  if (!t || btn.dataset.busy) return;
+  if (!t) return;
   const next = t.Status === DONE ? S.cfg.statuses[0] : DONE;
-  btn.dataset.busy = '1';
-  btn.classList.toggle('on', next === DONE);
+  setStatus(t, next, next === DONE ? 'Marked as done' : 'Task reopened');
+}
+
+/** Speed: update the screen instantly, save in the background, undo on failure. */
+async function setStatus(t, next, okMsg) {
+  if (S.inflight[t.TaskID] || t.Status === next) return;
+  const prev = Object.assign({}, t);
+  S.inflight[t.TaskID] = true;
+  S.mutGen++;
+  patchTask(Object.assign({}, t, {
+    Status: next,
+    CompletedAt: next === DONE ? nowStamp() : (t.Status === DONE ? '' : t.CompletedAt)
+  }));
+  rerender();
   try {
-    await call('updateStatus', { id, status: next, reqId: newReqId() });
-    toast(next === DONE ? 'Marked as done' : 'Task reopened');
-    refresh();
+    const r = await call('updateStatus', { id: t.TaskID, status: next, reqId: newReqId() });
+    patchTask(r.task);
+    toast(okMsg || 'Status updated');
   } catch (e) {
-    btn.classList.toggle('on', t.Status === DONE);
-    toast(e.message, false);
-  } finally { delete btn.dataset.busy; }
+    patchTask(prev);
+    toast(e.message + ' Change undone.', false);
+  } finally {
+    delete S.inflight[t.TaskID];
+    S.mutGen++;
+    rerender();
+  }
 }
 
 /* =================================================================
    VIEW: Board (Kanban)
    ================================================================= */
-async function viewBoard() {
+function boardParams() {
   const f = S.board || (S.board = { scope: isMgr() ? 'team' : 'my', projectId: '', assignee: '' });
+  return { scope: f.scope === 'all' ? '' : f.scope, projectId: f.projectId, assignee: f.assignee, active: '1', pageSize: 2000 };
+}
+async function viewBoard() {
+  const params = boardParams(), f = S.board;
   setTop('Board', newTaskBtn()); bindNewTask();
-  skel(4);
-  const r = await load(() => call('listTasks', {
-    scope: f.scope === 'all' ? '' : f.scope, projectId: f.projectId, assignee: f.assignee, active: '1', pageSize: 2000
-  }), viewBoard);
+  const r = await fetchSWR('board', 'listTasks', params, viewBoard, { skel: 4 });
   if (!r || S.view !== 'board') return;
   cacheTasks(r.rows);
 
@@ -510,13 +614,7 @@ function bindDrag() {
       const id = dragId; dragId = null;
       const t = S.taskCache[id], st = col.dataset.status;
       if (!t || t.Status === st) return;
-      const card = $(`.tcard[data-id="${CSS.escape(id)}"]`);
-      $('.col-body', col).prepend(card);
-      try {
-        await call('updateStatus', { id, status: st, reqId: newReqId() });
-        toast('Moved to ' + st);
-      } catch (ex) { toast(ex.message, false); }
-      refresh();
+      setStatus(t, st, 'Moved to ' + st);
     });
   });
 }
@@ -571,9 +669,10 @@ function filterParams(f) {
 async function loadTaskTable() {
   const f = S.tf, box = $('#tResult');
   if (!box) return;
-  if (!S.silent) box.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+  const params = { ...filterParams(f), page: f.page, pageSize: CONFIG.PAGE_SIZE };
+  if (!S.silent && (S.fresh || !vcGet(vcKey('listTasks', params)))) box.innerHTML = '<div class="skeleton"></div>'.repeat(6);
   let r;
-  try { r = await call('listTasks', { ...filterParams(f), page: f.page, pageSize: CONFIG.PAGE_SIZE }); }
+  try { r = await fetchSWR('tasks', 'listTasks', params, loadTaskTable, { raw: true }); }
   catch (e) {
     box.innerHTML = `<div class="card load-err"><p class="muted">${esc(e.message)}</p><button class="btn btn-primary" id="tRetry">Try again</button></div>`;
     $('#tRetry').onclick = loadTaskTable; return;
@@ -606,11 +705,11 @@ async function loadTaskTable() {
    ================================================================= */
 async function viewApprovals() {
   setTop(isMgr() ? 'Date Change Approvals' : 'My Date Change Requests');
-  skel(4);
   const tab = S.apprTab;
-  const r = await load(() => call('listRevisions', { status: tab }), viewApprovals);
+  const r = await fetchSWR('approvals', 'listRevisions', { status: tab }, viewApprovals, { skel: 4 });
   if (!r || S.view !== 'approvals') return;
   const rows = r.rows;
+  if (tab === 'Pending' && isMgr()) setPending(rows.filter(x => x.canReview).length);
   $('#page').innerHTML = `
     <div class="tabs"><button class="tab ${tab === 'Pending' ? 'active' : ''}" data-tab="Pending">Pending</button>
       <button class="tab ${tab === 'History' ? 'active' : ''}" data-tab="History">History</button></div>
@@ -635,7 +734,7 @@ async function viewApprovals() {
     try {
       await call('reviewRevision', { id: b.dataset.rev, decision: b.dataset.d, reqId: newReqId() });
       toast('Request ' + b.dataset.d.toLowerCase());
-      refreshPending(); refresh();
+      refresh();
     } catch (e) { toast(e.message, false); }
   }));
 }
@@ -643,12 +742,14 @@ async function viewApprovals() {
 /* =================================================================
    VIEW: Weekly Meeting / Scores
    ================================================================= */
-async function viewMeeting() {
+function meetingParams() {
   if (!S.mw) S.mw = { week: addDays(mondayOf(todayStr()), -7), dept: '' };
-  const w = S.mw;
+  return { week: S.mw.week };
+}
+async function viewMeeting() {
+  const params = meetingParams(), w = S.mw;
   setTop(isMgr() ? 'Weekly Meeting' : 'My Weekly Score');
-  skel(6);
-  const r = await load(() => call('weeklyScores', { week: w.week }), viewMeeting);
+  const r = await fetchSWR('meeting', 'weeklyScores', params, viewMeeting);
   if (!r || S.view !== 'meeting') return;
   S.mData = r;
 
@@ -869,12 +970,9 @@ async function openTask(id) {
   const sel = m.q('#dStatus');
   if (sel) sel.onchange = async () => {
     const prevVal = t.Status, next = sel.value;
-    sel.disabled = true;
-    try {
-      await call('updateStatus', { id: t.TaskID, status: next, reqId: newReqId() });
-      t.Status = next; toast('Status updated'); refresh();
-    } catch (e) { sel.value = prevVal; toast(e.message, false); }
-    finally { sel.disabled = false; }
+    await setStatus(S.taskCache[t.TaskID] || t, next, 'Status updated');
+    const now = S.taskCache[t.TaskID];
+    if (now) { t.Status = now.Status; sel.value = now.Status; } else sel.value = prevVal;
   };
   const rv = m.q('#dRevise'); if (rv) rv.onclick = () => { m.close(); revisionForm(t); };
   const ed = m.q('#dEdit'); if (ed) ed.onclick = () => { m.close(); taskForm(t); };
@@ -1000,8 +1098,7 @@ async function viewTemplates() {
     try { const r = await call('runGenerator', { reqId: newReqId() }); toast(r.generated + ' task(s) generated for today'); }
     catch (ex) { toast(ex.message, false); }
   });
-  skel(5);
-  const r = await load(() => call('listTemplates'), viewTemplates);
+  const r = await fetchSWR('templates', 'listTemplates', {}, viewTemplates, { skel: 5 });
   if (!r || S.view !== 'templates') return;
   S.tplCache = {}; r.rows.forEach(x => S.tplCache[x.TemplateID] = x);
   const rows = r.rows.sort((a, b) => userName(a.AssignedTo).localeCompare(userName(b.AssignedTo)));
@@ -1080,8 +1177,7 @@ function templateForm(x) {
 async function viewProjects() {
   setTop('Projects', `<button class="btn btn-primary" id="newProjBtn">${IC.plus}<span class="lbl">New Project</span></button>`);
   $('#newProjBtn').onclick = () => projectForm();
-  skel(4);
-  const r = await load(() => call('bootstrap'), viewProjects);
+  const r = await fetchSWR('projects', 'bootstrap', {}, viewProjects, { skel: 4 });
   if (!r || S.view !== 'projects') return;
   applyBoot(r);
   const rows = S.projects.slice().sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
@@ -1133,8 +1229,7 @@ function projectForm(p) {
    ================================================================= */
 async function viewUsers() {
   setTop('Employees', `<button class="btn btn-primary" id="newUserBtn">${IC.plus}<span class="lbl">Add Employee</span></button>`);
-  skel(6);
-  const r = await load(() => call('listUsers'), viewUsers);
+  const r = await fetchSWR('users', 'listUsers', {}, viewUsers);
   if (!r || S.view !== 'users') return;
   const all = r.rows;
   S.allUsers = {}; all.forEach(u => S.allUsers[u.UserID] = u);
@@ -1197,8 +1292,7 @@ function userForm(u, all) {
    ================================================================= */
 async function viewSettings() {
   setTop('Settings', `<button class="btn btn-primary" id="cfgSave">Save settings</button>`);
-  skel(5);
-  const r = await load(() => call('bootstrap'), viewSettings);
+  const r = await fetchSWR('settings', 'bootstrap', {}, viewSettings, { skel: 5, noCache: true });
   if (!r || S.view !== 'settings') return;
   applyBoot(r);
   const items = S.cfg.items.filter(i => i.Type !== 'Setting');
@@ -1278,20 +1372,37 @@ document.addEventListener('click', e => {
 });
 
 /* Restore session */
+/* Restore session: open instantly with the last saved data, then refresh with ONE call */
 (async function init() {
-  const sess = store.get('session');
-  if (sess && sess.token) {
-    S.token = sess.token;
-    $('#loginView').classList.add('hidden');
-    try { await boot(); }
-    catch (e) {
-      if (S.token) { S.token = null; store.del('session'); }
-      $('#appView').classList.add('hidden');
-      $('#loginView').classList.remove('hidden');
-      $('#loginErr').textContent = e.message;
+  const sess = store.get('session'), snap = store.get('boot');
+  if (!(sess && sess.token)) { $('#pin').focus(); return; }
+  S.token = sess.token;
+  $('#loginView').classList.add('hidden');
+  const instant = !!(snap && snap.me);
+  if (instant) startApp(snap);
+  try {
+    const r = await call('init');
+    if (!instant) { startApp(r); return; }
+    const roleChanged = S.me.id !== r.me.id || S.me.role !== r.me.role;
+    applyBoot(r);
+    vcSet(vcKey('listTasks', myParams()), r.my);
+    if (roleChanged) {
+      paintShell();
+      S.cacheOnly = true;
+      try { route(); } finally { S.cacheOnly = false; }
+    } else {
+      $('#meName').textContent = S.me.name;
+      $('#meRole').textContent = S.me.role + (S.me.dept ? ' · ' + S.me.dept : '');
+      rerender();
     }
-  } else {
-    $('#pin').focus();
+    setPending(r.pending || 0);
+  } catch (e) {
+    if (!S.token) return;                              // session expired: login screen already shown
+    if (instant) { toast('Could not connect. Showing last saved data.', false); return; }
+    S.token = null; store.del('session');
+    $('#appView').classList.add('hidden');
+    $('#loginView').classList.remove('hidden');
+    $('#loginErr').textContent = e.message;
   }
 })();
 
