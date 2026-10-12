@@ -349,7 +349,7 @@ async function doLogin(e) {
   e.preventDefault();
   const pin = $('#pin').value.trim(), err = $('#loginErr');
   err.textContent = '';
-  if (!/^\d{4,6}$/.test(pin)) { loginError('Enter your 4–6 digit PIN.', false); return; }
+  if (!/^\d{4}$/.test(pin)) { loginError('Enter your 4-digit PIN.', false); return; }
   await busy($('#loginBtn'), async () => {
     try {
       const r = await api('login', { pin });
@@ -364,14 +364,19 @@ async function doLogin(e) {
 
 /* ---------------- Login screen: PIN boxes, keypad, greeting ---------------- */
 const TOUCH = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+const PIN_LEN = 4;
 function renderPinSlots() {
-  const inp = $('#pin'), v = inp.value.replace(/\D/g, '').slice(0, 6);
+  const inp = $('#pin'), v = inp.value.replace(/\D/g, '').slice(0, PIN_LEN);
   if (inp.value !== v) inp.value = v;
   const focused = document.activeElement === inp || TOUCH;
   $$('#pinSlots .slot').forEach((s, i) => {
     s.classList.toggle('filled', i < v.length);
-    s.classList.toggle('active', focused && i === Math.min(v.length, 5) && v.length < 6);
+    s.classList.toggle('active', focused && i === v.length && v.length < PIN_LEN);
   });
+}
+/** 4th digit entered → sign in automatically */
+function autoSubmitPin() {
+  if ($('#pin').value.length === PIN_LEN && !$('#loginBtn').dataset.busy) setTimeout(() => $('#loginForm').requestSubmit(), 120);
 }
 function loginError(msg, wrongPin) {
   $('#loginErr').textContent = msg;
@@ -384,12 +389,13 @@ function loginError(msg, wrongPin) {
 function setGreeting() {
   const h = new Date().getHours();
   $('#loginGreet').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  $('.login-hint').textContent = 'Enter your 4-digit PIN';
 }
 (function initLoginUI() {
   const inp = $('#pin');
   if (TOUCH) inp.readOnly = true;                  // on phones the keypad is used, so the system keyboard stays closed
   const clearErr = () => { $('#loginErr').textContent = ''; $('.pin-field').classList.remove('error'); };
-  inp.addEventListener('input', () => { clearErr(); renderPinSlots(); });
+  inp.addEventListener('input', () => { clearErr(); renderPinSlots(); autoSubmitPin(); });
   inp.addEventListener('focus', renderPinSlots);
   inp.addEventListener('blur', renderPinSlots);
   $('#keypad').addEventListener('click', e => {
@@ -398,8 +404,9 @@ function setGreeting() {
     const k = b.dataset.k;
     if (k === 'back') inp.value = inp.value.slice(0, -1);
     else if (k === 'clear') inp.value = '';
-    else if (inp.value.length < 6) inp.value += k;
+    else if (inp.value.length < PIN_LEN) inp.value += k;
     clearErr(); renderPinSlots();
+    if (k !== 'back' && k !== 'clear') autoSubmitPin();
     if (navigator.vibrate) { try { navigator.vibrate(8); } catch (x) {} }
   });
   setGreeting();
