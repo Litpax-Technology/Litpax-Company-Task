@@ -117,6 +117,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .icon-btn svg { width: 18px; height: 18px; stroke: var(--text); fill: none; stroke-width: 2; stroke-linecap: round; }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
 
+/* ---------------- Bell + @tags ---------------- */
+.bell-wrap { position: relative; }
+#bellBtn { position: relative; }
+.bell-count { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; animation: pop .3s ease; }
+.bell-panel { position: absolute; right: 0; top: 44px; width: 340px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg); z-index: 60; overflow: hidden; animation: slideUp .2s ease both; }
+.bell-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
+.bell-list { max-height: 420px; overflow-y: auto; }
+.notif { display: flex; gap: 10px; padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; }
+.notif:last-child { border-bottom: none; }
+.notif:hover { background: #fafaff; }
+.notif.unread { background: var(--accent-softer); }
+.notif-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: transparent; }
+.notif.unread .notif-dot { background: var(--accent); }
+.notif-body { flex: 1; min-width: 0; font-size: 13px; }
+.notif-msg { color: var(--muted); margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.notif-time { font-size: 11px; color: var(--faint); margin-top: 3px; }
+.link-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; font-weight: 500; padding: 0; }
+.link-btn:hover { text-decoration: underline; }
+.mention { color: var(--accent-dark); background: var(--accent-soft); padding: 0 3px; border-radius: 4px; font-weight: 500; }
+.cform-wrap { position: relative; flex: 1; min-width: 0; }
+.cform-wrap .textarea { width: 100%; }
+.mention-box { position: absolute; left: 0; bottom: 100%; margin-bottom: 6px; width: 260px; max-width: 100%; max-height: 230px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); z-index: 120; animation: fadeIn .15s ease both; }
+.mention-opt { display: flex; gap: 8px; align-items: center; padding: 8px 10px; cursor: pointer; font-size: 13px; }
+.mention-opt.on, .mention-opt:hover { background: var(--accent-soft); }
+@media (max-width: 600px) {
+  .bell-panel { position: fixed; left: 12px; right: 12px; top: 62px; width: auto; }
+}
+
 /* ---------------- Cards / KPIs ---------------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .card-pad { padding: 18px; }
