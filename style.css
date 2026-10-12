@@ -84,15 +84,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* PIN boxes (real input sits invisibly on top) */
 .pin-field { position: relative; display: block; cursor: text; }
 .pin-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; caret-color: transparent; z-index: 2; cursor: text; }
-.pin-slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; }
-.slot { height: 54px; border-radius: 12px; border: 1.5px solid var(--border); background: #fbfbfe; position: relative;
+.pin-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.slot { height: 62px; border-radius: 14px;
   transition: border-color .18s, box-shadow .18s, background .18s, transform .18s; }
-.slot.opt { border-style: dashed; }
+.slot.opt { display: none; }
 .slot.filled { background: var(--surface); border-style: solid; border-color: #c9c6ff; }
 .slot.filled::after { content: ''; position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
   border-radius: 50%; background: var(--text); animation: pop .22s ease; }
 .slot.active { border-color: var(--accent); border-style: solid; background: var(--surface); box-shadow: 0 0 0 4px rgba(99,91,255,.14); }
-.slot.active::before { content: ''; position: absolute; left: 50%; top: 15px; bottom: 15px; width: 2px; margin-left: -1px;
+.slot.active::before { content: ''; position: absolute; left: 50%; top: 18px; bottom: 18px; width: 2px; margin-left: -1px;
   background: var(--accent); border-radius: 2px; animation: blink 1s steps(1) infinite; }
 .pin-field.error .slot { border-color: #f3b4b4; background: var(--bad-soft); }
 
@@ -121,7 +121,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
     background: linear-gradient(180deg, var(--sidebar) 0, var(--sidebar) 170px, var(--bg) 170px); }
   .login-card { padding: 28px 22px 24px; }
 }
-@media (max-width: 380px) { .slot { height: 48px; } .pin-slots { gap: 6px; } }
+@media (max-width: 380px) { .slot { height: 54px; } .pin-slots { gap: 8px; } }
 
 /* ---------------- Layout ---------------- */
 .app { display: flex; min-height: 100vh; }
