@@ -8,7 +8,8 @@ const S = {
   token: null, me: null, team: [], cfg: null, users: [], userMap: {}, projects: [], projMap: {},
   view: null, silent: false, taskCache: {}, pending: 0,
   board: null, tf: null, mw: null, apprTab: 'Pending', draft: null,
-  cacheOnly: false, fresh: false, mutGen: 0, revalidating: {}, inflight: {}
+  cacheOnly: false, fresh: false, mutGen: 0, revalidating: {}, inflight: {},
+  notifs: [], unread: 0, notifsLoaded: false, notifTimer: null
 };
 const DONE = 'Done';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -370,6 +371,8 @@ function startApp(b) {
   $('#appView').classList.remove('hidden');
   paintShell();
   setPending(b.pending || 0);
+  setNotifs(b);
+  startNotifPoll();
   S.cacheOnly = true;                  // data is fresh (or about to be refreshed by init): no duplicate fetch
   try { route(); } finally { S.cacheOnly = false; }
   setTimeout(prefetch, 400);
@@ -401,6 +404,7 @@ function logout(expired) {
   S.token = null; S.me = null;
   store.del('session'); store.del('boot');
   vcClear(); S.taskCache = {}; S.board = S.tf = S.mw = null;
+  stopNotifPoll(); S.notifs = []; S.notifsLoaded = false; setUnread(0); $('#bellPanel').classList.add('hidden');
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
   $('#modalRoot').innerHTML = '';
@@ -454,7 +458,7 @@ async function manualRefresh() {
   try {
     await Promise.all([
       refresh(),
-      call('init').then(r => { applyBoot(r); vcSet(vcKey('listTasks', myParams()), r.my); setPending(r.pending || 0); }).catch(() => {})
+      call('init').then(r => { applyBoot(r); vcSet(vcKey('listTasks', myParams()), r.my); setPending(r.pending || 0); setNotifs(r); }).catch(() => {})
     ]);
     toast('Updated');
   } finally { b.classList.remove('spin'); }
@@ -983,7 +987,9 @@ async function openTask(id) {
     <div class="h-sec">Comments</div>
     <div class="comments" id="dComments">${r.comments.map(commentHtml).join('') || '<div class="faint small" id="noCmt">No comments yet.</div>'}</div>
     <form id="cForm" class="row" style="align-items:flex-end">
-      <textarea class="textarea grow" name="text" rows="2" maxlength="1000" placeholder="Write a comment…" style="min-height:44px"></textarea>
+      <div class="cform-wrap">
+        <textarea class="textarea" name="text" rows="2" maxlength="1000" placeholder="Write a comment… type @ to tag someone" style="min-height:44px"></textarea>
+      </div>
       <button class="btn btn-primary" type="submit">Post</button>
     </form>`;
 
@@ -1006,6 +1012,7 @@ async function openTask(id) {
     });
   };
   const cForm = m.q('#cForm');
+  attachMention(cForm.elements.text);
   const cReq = { id: newReqId() };
   cForm.onsubmit = e => {
     e.preventDefault();
@@ -1019,6 +1026,7 @@ async function openTask(id) {
         cBox.insertAdjacentHTML('beforeend', commentHtml(res.comment));
         cBox.scrollTop = cBox.scrollHeight;
         ta.value = ''; ta.classList.remove('invalid');
+        if (res.tagged && res.tagged.length) toast('Comment posted · notified ' + res.tagged.map(userName).join(', '));
       } catch (ex) { toast(ex.message + ' Your comment is kept.', false); }
     });
   };
@@ -1026,7 +1034,7 @@ async function openTask(id) {
 
 function commentHtml(c) {
   return `<div class="cmt"><div class="avatar">${esc(initials(userName(c.UserID)))}</div>
-    <div class="cmt-body"><div class="cmt-head"><b>${esc(userName(c.UserID))}</b> · ${esc(niceDateTime(c.CreatedAt))}</div>${esc(c.Text)}</div></div>`;
+    <div class="cmt-body"><div class="cmt-head"><b>${esc(userName(c.UserID))}</b> · ${esc(niceDateTime(c.CreatedAt))}</div>${renderMentions(c.Text)}</div></div>`;
 }
 
 /* =================================================================
@@ -1375,6 +1383,129 @@ function cfgRow(type, i) {
 }
 
 /* =================================================================
+   @Tags + Notifications (bell)
+   ================================================================= */
+/** Comment text with "@Full Name" tags highlighted (longest names first). */
+function renderMentions(text) {
+  let html = esc(text);
+  S.users.slice().sort((a, b) => String(b.Name).length - String(a.Name).length).forEach(u => {
+    const tag = '@' + esc(u.Name);
+    if (html.indexOf(tag) !== -1) html = html.split(tag).join('\u0001' + u.UserID + '\u0002');
+  });
+  return html.replace(/\u0001([^\u0002]*)\u0002/g, (m, id) => `<span class="mention">@${esc(userName(id))}</span>`);
+}
+
+/** Typing "@" in a textarea opens an employee list; pick with click, Enter or Tab. */
+function attachMention(ta) {
+  const box = document.createElement('div');
+  box.className = 'mention-box hidden';
+  ta.parentNode.appendChild(box);
+  let list = [], idx = 0, start = -1;
+  const close = () => { box.classList.add('hidden'); start = -1; list = []; };
+  const draw = () => {
+    box.innerHTML = list.map((u, i) => `<div class="mention-opt ${i === idx ? 'on' : ''}" data-i="${i}">
+      <div class="avatar">${esc(initials(u.Name))}</div><div><div>${esc(u.Name)}</div><div class="faint small">${esc(u.Department || u.Role)}</div></div></div>`).join('');
+    box.classList.toggle('hidden', !list.length);
+  };
+  const pick = u => {
+    const caret = ta.selectionStart, ins = '@' + u.Name + ' ';
+    ta.value = ta.value.slice(0, start) + ins + ta.value.slice(caret);
+    const pos = start + ins.length;
+    ta.focus(); ta.setSelectionRange(pos, pos);
+    close();
+  };
+  ta.addEventListener('input', () => {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const at = before.lastIndexOf('@');
+    if (at === -1 || (at > 0 && !/\s/.test(before[at - 1]))) return close();
+    const q = before.slice(at + 1).toLowerCase();
+    if (q.length > 30 || q.indexOf('\n') !== -1) return close();
+    list = S.users.filter(u => u.UserID !== S.me.id && String(u.Name).toLowerCase().indexOf(q) !== -1).slice(0, 8);
+    start = at; idx = 0; draw();
+  });
+  ta.addEventListener('keydown', e => {
+    if (box.classList.contains('hidden') || !list.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); idx = (idx + 1) % list.length; draw(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); idx = (idx - 1 + list.length) % list.length; draw(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(list[idx]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+  });
+  box.addEventListener('mousedown', e => {
+    const o = e.target.closest('[data-i]');
+    if (o) { e.preventDefault(); pick(list[Number(o.dataset.i)]); }
+  });
+  ta.addEventListener('blur', () => setTimeout(close, 150));
+}
+
+function setUnread(n) {
+  S.unread = n || 0;
+  const b = $('#bellCount');
+  b.textContent = S.unread > 9 ? '9+' : S.unread;
+  b.classList.toggle('hidden', !S.unread);
+}
+/** Apply notifications from init / poll; toast when a new tag arrives. */
+function setNotifs(r) {
+  if (!r || r.notifs === undefined) return;
+  const before = S.unread, wasLoaded = S.notifsLoaded;
+  S.notifs = r.notifs || r.rows || [];
+  S.notifsLoaded = true;
+  setUnread(r.unread);
+  if (wasLoaded && S.unread > before && S.notifs[0]) toast(userName(S.notifs[0].FromUser) + ' tagged you in "' + S.notifs[0].TaskTitle + '"');
+  if (!$('#bellPanel').classList.contains('hidden')) drawBell();
+}
+async function pollNotifs() {
+  if (!S.me || document.hidden) return;
+  try { const r = await call('listNotifs'); setNotifs({ notifs: r.rows, unread: r.unread }); } catch (e) {}
+}
+function startNotifPoll() { stopNotifPoll(); S.notifTimer = setInterval(pollNotifs, 60000); }
+function stopNotifPoll() { if (S.notifTimer) clearInterval(S.notifTimer); S.notifTimer = null; }
+
+function drawBell() {
+  const rows = S.notifs || [];
+  $('#bellPanel').innerHTML = `
+    <div class="bell-head"><span>Notifications</span>${S.unread ? '<button class="link-btn" id="bellAll" type="button">Mark all read</button>' : ''}</div>
+    <div class="bell-list">${rows.length ? rows.map(n => `
+      <div class="notif ${String(n.Read).toUpperCase() === 'TRUE' ? '' : 'unread'}" data-n="${esc(n.NotifID)}" data-t="${esc(n.TaskID)}">
+        <span class="notif-dot"></span>
+        <div class="notif-body">
+          <div><b>${esc(userName(n.FromUser))}</b> tagged you in <b>${esc(n.TaskTitle)}</b></div>
+          <div class="notif-msg">${renderMentions(n.Message)}</div>
+          <div class="notif-time">${esc(niceDateTime(n.CreatedAt))}</div>
+        </div>
+      </div>`).join('') : `<div class="empty small">${S.notifsLoaded ? 'No notifications yet. When someone tags you with @, it shows here.' : 'Loading…'}</div>`}
+    </div>`;
+}
+function toggleBell(e) {
+  e.stopPropagation();
+  const p = $('#bellPanel');
+  if (!p.classList.contains('hidden')) { p.classList.add('hidden'); return; }
+  drawBell();
+  p.classList.remove('hidden');
+  pollNotifs();
+}
+async function markNotifs(ids) {
+  let changed = 0;
+  S.notifs.forEach(n => {
+    if ((!ids || ids.indexOf(n.NotifID) !== -1) && String(n.Read).toUpperCase() !== 'TRUE') { n.Read = 'TRUE'; changed++; }
+  });
+  setUnread(ids ? Math.max(0, S.unread - changed) : 0);
+  if (!$('#bellPanel').classList.contains('hidden')) drawBell();
+  try {
+    const r = await call('markNotifsRead', ids ? { ids: JSON.stringify(ids), reqId: newReqId() } : { reqId: newReqId() });
+    setUnread(r.unread);
+  } catch (e) {}
+}
+function onBellClick(e) {
+  e.stopPropagation();
+  if (e.target.closest('#bellAll')) { markNotifs(null); return; }
+  const n = e.target.closest('.notif');
+  if (!n) return;
+  $('#bellPanel').classList.add('hidden');
+  if (n.classList.contains('unread')) markNotifs([n.dataset.n]);
+  openTask(n.dataset.t);
+}
+
+/* =================================================================
    Global wiring
    ================================================================= */
 $('#loginForm').addEventListener('submit', doLogin);
@@ -1383,6 +1514,9 @@ $('#menuBtn').onclick = () => { $('#sidebar').classList.add('open'); $('#scrim')
 $('#scrim').onclick = closeSidebar;
 window.addEventListener('hashchange', route);
 $('#refreshBtn').onclick = manualRefresh;
+$('#bellBtn').onclick = toggleBell;
+$('#bellPanel').addEventListener('click', onBellClick);
+document.addEventListener('click', e => { if (!e.target.closest('.bell-wrap')) $('#bellPanel').classList.add('hidden'); });
 
 /* Auto refresh when the app comes back after more than a minute in the background */
 let hiddenAt = 0;
@@ -1425,6 +1559,7 @@ document.addEventListener('click', e => {
       rerender();
     }
     setPending(r.pending || 0);
+    setNotifs(r);
   } catch (e) {
     if (!S.token) return;                              // session expired: login screen already shown
     if (instant) { toast('Could not connect. Showing last saved data.', false); return; }
