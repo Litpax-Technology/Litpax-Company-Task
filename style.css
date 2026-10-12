@@ -85,7 +85,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pin-field { position: relative; display: block; cursor: text; }
 .pin-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; caret-color: transparent; z-index: 2; cursor: text; }
 .pin-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.slot { height: 62px; border-radius: 14px;
+.slot { height: 62px; border-radius: 14px; border: 1.5px solid var(--border); background: #fbfbfe; position: relative;
   transition: border-color .18s, box-shadow .18s, background .18s, transform .18s; }
 .slot.opt { display: none; }
 .slot.filled { background: var(--surface); border-style: solid; border-color: #c9c6ff; }
