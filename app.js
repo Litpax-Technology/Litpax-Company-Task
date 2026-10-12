@@ -1264,25 +1264,44 @@ async function viewUsers() {
   S.allUsers = {}; all.forEach(u => S.allUsers[u.UserID] = u);
   $('#newUserBtn').onclick = () => userForm(null, all);
   const rows = all.slice().sort((a, b) => (b.Active - a.Active) || String(a.Name).localeCompare(String(b.Name)));
+  const depts = [...new Set(all.map(u => u.Department).filter(Boolean))].sort();
+  const status = u => !u.Active ? 'inactive' : u.HasAccess ? 'active' : 'noaccess';
   $('#page').innerHTML = `
-    <div class="filters"><input class="input search" id="uQ" placeholder="Search employees…" /></div>
+    <div class="filters">
+      <input class="input search" id="uQ" placeholder="Search name, ID, designation, phone…" />
+      <select class="select" id="uDept">${opts(depts, '', 'All departments')}</select>
+      <select class="select" id="uStatus">${opts([{ v: 'active', l: 'Active' }, { v: 'noaccess', l: 'No app access' }, { v: 'inactive', l: 'Inactive' }], '', 'All statuses')}</select>
+      <button class="btn btn-ghost" id="uExport">${IC.download} CSV</button>
+    </div>
     <div class="card fade-in"><div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>Employee</th><th>ID</th><th>Role</th><th>Department</th><th>Reports to</th><th>Status</th><th></th></tr></thead>
-    <tbody id="uBody">${rows.map(u => `<tr data-s="${esc((u.Name + ' ' + u.Department + ' ' + u.Role).toLowerCase())}">
-      <td><div class="row"><div class="avatar">${esc(initials(u.Name))}</div><b>${esc(u.Name)}</b></div></td>
-      <td class="small muted">${esc(u.UserID)}</td><td>${esc(u.Role)}</td><td>${esc(u.Department || '—')}</td>
+    <thead><tr><th>Employee</th><th>Emp ID</th><th>Department</th><th>Phone</th><th>Reports to</th><th>Role</th><th>Status</th><th></th></tr></thead>
+    <tbody id="uBody">${rows.map(u => `<tr data-s="${esc([u.Name, u.UserID, u.Department, u.Designation, u.Phone, u.Email, u.Role].join(' ').toLowerCase())}" data-d="${esc(u.Department)}" data-st="${status(u)}">
+      <td><div class="row"><div class="avatar">${esc(initials(u.Name))}</div><div><b>${esc(u.Name)}</b><div class="faint small">${esc(u.Designation || '')}</div></div></div></td>
+      <td class="small muted">${esc(u.UserID)}</td><td>${esc(u.Department || '—')}</td>
+      <td class="small">${esc(u.Phone || '—')}</td>
       <td>${esc(u.Manager ? (S.allUsers[u.Manager] || {}).Name || u.Manager : '—')}</td>
-      <td>${u.Active ? '<span class="badge st-done">Active</span>' : '<span class="badge">Inactive</span>'}</td>
-      <td class="right"><button class="btn btn-ghost btn-sm" data-edit="${esc(u.UserID)}">${u.Active ? 'Edit' : 'Reactivate'}</button>
+      <td>${esc(u.Role || '—')}</td>
+      <td>${!u.Active ? '<span class="badge">Inactive</span>' : u.HasAccess ? '<span class="badge st-done">Active</span>' : '<span class="badge st-pending">No app access</span>'}</td>
+      <td class="right"><button class="btn btn-ghost btn-sm" data-edit="${esc(u.UserID)}">${!u.Active ? 'Reactivate' : u.HasAccess ? 'Edit' : 'Give access'}</button>
         ${u.Active && u.UserID !== S.me.id ? `<button class="btn btn-danger btn-sm" data-del="${esc(u.UserID)}">Deactivate</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>
-    <p class="legend">Managers see and assign tasks for employees who report to them, and approve their date changes. Admins see everything.</p>`;
-  $('#uQ').oninput = e => { const q = e.target.value.toLowerCase(); $$('#uBody tr').forEach(tr => tr.classList.toggle('hidden', !tr.dataset.s.includes(q))); };
+    <p class="legend">Employee details are saved in the common <b>Employee Master</b> sheet; PIN and role are saved in this app.
+      Managers see and assign tasks for employees who report to them, and approve their date changes. Admins see everything.</p>`;
+  const applyF = () => {
+    const q = $('#uQ').value.toLowerCase(), d = $('#uDept').value, st = $('#uStatus').value;
+    $$('#uBody tr').forEach(tr => tr.classList.toggle('hidden', !tr.dataset.s.includes(q) || (d && tr.dataset.d !== d) || (st && tr.dataset.st !== st)));
+  };
+  $('#uQ').oninput = applyF; $('#uDept').onchange = applyF; $('#uStatus').onchange = applyF;
+  $('#uExport').onclick = () => exportCSV('Employees', [
+    { l: 'Emp ID', k: 'UserID' }, { l: 'Name', k: 'Name' }, { l: 'Department', k: 'Department' }, { l: 'Designation', k: 'Designation' },
+    { l: 'Phone', k: 'Phone' }, { l: 'Email', k: 'Email' }, { l: 'Reports To', k: x => x.Manager ? (S.allUsers[x.Manager] || {}).Name || x.Manager : '' },
+    { l: 'Join Date', k: 'JoinDate' }, { l: 'Role', k: 'Role' }, { l: 'Status', k: x => ({ active: 'Active', noaccess: 'No app access', inactive: 'Inactive' })[status(x)] }
+  ], rows);
   $$('[data-edit]').forEach(b => b.onclick = () => userForm(S.allUsers[b.dataset.edit], all));
   $$('[data-del]').forEach(b => b.onclick = async () => {
     const u = S.allUsers[b.dataset.del];
     if (!(await confirmBox('Deactivate employee', 'Deactivate ' + u.Name + '? They will not be able to log in. Their history is kept.', 'Deactivate'))) return;
     busy(b, async () => {
-      try { await call('deleteUser', { id: u.UserID, reqId: newReqId() }); toast('Employee deactivated'); await reloadBoot(); refresh(); }
+      try { await call('deleteUser', { id: u.UserID, reqId: newReqId() }); toast('Employee deactivated'); refresh(); reloadBoot().catch(() => {}); }
       catch (e) { toast(e.message, false); }
     });
   });
@@ -1290,16 +1309,27 @@ async function viewUsers() {
 
 function userForm(u, all) {
   const d = u || { Role: 'Member' };
-  const mgrs = all.filter(x => x.Active && x.Role !== 'Member' && (!u || x.UserID !== u.UserID));
+  const needPin = !u || !u.HasAccess;
+  const mgrs = all.filter(x => x.Active && x.HasAccess && x.Role !== 'Member' && (!u || x.UserID !== u.UserID));
   const m = modal({
-    title: u ? 'Edit Employee' : 'Add Employee',
-    body: `<form id="usForm" novalidate autocomplete="off"><div class="form-grid">
-      ${field('Name', `<input class="input" name="Name" maxlength="80" value="${esc(d.Name)}" />`, { req: true, full: true })}
-      ${field(u ? 'New PIN' : 'PIN', `<input class="input" name="PIN" inputmode="numeric" maxlength="6" placeholder="${u ? 'Leave blank to keep current' : '4–6 digits'}" />`, { req: !u })}
-      ${field('Role', `<select class="select" name="Role">${opts(['Member', 'Manager', 'Admin'], d.Role)}</select>`, { req: true })}
+    title: !u ? 'Add Employee' : u.HasAccess ? 'Edit Employee · ' + u.UserID : 'Give App Access · ' + u.UserID, wide: true,
+    body: `<form id="usForm" novalidate autocomplete="off">
+      <div class="h-sec" style="margin-top:0">Employee details <span class="faint small">(saved in Employee Master)</span></div>
+      <div class="form-grid">
+      ${field('Name', `<input class="input" name="Name" maxlength="80" value="${esc(d.Name)}" />`, { req: true })}
+      ${field('Designation', `<input class="input" name="Designation" maxlength="60" value="${esc(d.Designation)}" placeholder="e.g. Line Supervisor" />`)}
       ${field('Department', `<select class="select" name="Department">${opts(S.cfg.departments, d.Department, 'Select')}</select>`)}
       ${field('Reports to', `<select class="select" name="Manager">${opts(mgrs.map(x => ({ v: x.UserID, l: x.Name + ' · ' + x.Role })), d.Manager, 'No manager')}</select>`, { hint: 'This manager approves date changes and sees their tasks.' })}
-    </div></form>`,
+      ${field('Phone', `<input class="input" name="Phone" inputmode="tel" maxlength="15" value="${esc(d.Phone)}" placeholder="10-digit mobile" />`)}
+      ${field('Email', `<input class="input" name="Email" type="email" maxlength="80" value="${esc(d.Email)}" />`)}
+      ${field('Join date', `<input class="input" name="JoinDate" type="date" value="${esc(d.JoinDate)}" />`)}
+      </div>
+      <div class="h-sec">Task app access</div>
+      <div class="form-grid">
+      ${field('Role', `<select class="select" name="Role">${opts(['Member', 'Manager', 'Admin'], d.Role || 'Member')}</select>`, { req: true })}
+      ${field(needPin ? 'PIN' : 'New PIN', `<input class="input" name="PIN" inputmode="numeric" maxlength="6" placeholder="${needPin ? '4–6 digits' : 'Leave blank to keep current'}" />`, { req: needPin })}
+      </div>
+    </form>`,
     foot: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save</button>`
   });
   const form = m.q('#usForm');
@@ -1308,10 +1338,12 @@ function userForm(u, all) {
   m.q('[data-save]').onclick = e => busy(e.currentTarget, async () => {
     const rec = formData(form), errs = {};
     if (rec.Name.length < 2) errs.Name = 'Enter a name.';
-    if ((!u || rec.PIN) && !/^\d{4,6}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4–6 digits.';
+    if (rec.Phone && !/^[0-9+\-\s]{7,15}$/.test(rec.Phone)) errs.Phone = 'Enter a valid phone number.';
+    if (rec.Email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.Email)) errs.Email = 'Enter a valid email address.';
+    if ((needPin || rec.PIN) && !/^\d{4,6}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4–6 digits.';
     if (!showErrors(form, errs)) return;
     if (u) rec.UserID = u.UserID;
-    try { await call('saveUser', { record: JSON.stringify(rec), reqId }); toast('Employee saved'); m.close(); await reloadBoot(); refresh(); }
+    try { await call('saveUser', { record: JSON.stringify(rec), reqId }); toast('Employee saved'); m.close(); refresh(); reloadBoot().catch(() => {}); }
     catch (ex) { toast(ex.message, false); }
   });
 }
