@@ -349,18 +349,62 @@ async function doLogin(e) {
   e.preventDefault();
   const pin = $('#pin').value.trim(), err = $('#loginErr');
   err.textContent = '';
-  if (!/^\d{4,6}$/.test(pin)) { err.textContent = 'Enter your 4–6 digit PIN.'; return; }
+  if (!/^\d{4,6}$/.test(pin)) { loginError('Enter your 4–6 digit PIN.', false); return; }
   await busy($('#loginBtn'), async () => {
     try {
       const r = await api('login', { pin });
-      if (!r.ok) { err.textContent = r.message || 'Login failed.'; return; }
+      if (!r.ok) { loginError(r.message || 'Login failed.', true); return; }
       S.token = r.token;
       store.set('session', { token: r.token });
-      $('#pin').value = '';
+      $('#pin').value = ''; renderPinSlots();
       startApp(r);                     // login already carries all startup data: no extra calls
-    } catch (ex) { err.textContent = ex.message; }
+    } catch (ex) { loginError(ex.message, false); }
   });
 }
+
+/* ---------------- Login screen: PIN boxes, keypad, greeting ---------------- */
+const TOUCH = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+function renderPinSlots() {
+  const inp = $('#pin'), v = inp.value.replace(/\D/g, '').slice(0, 6);
+  if (inp.value !== v) inp.value = v;
+  const focused = document.activeElement === inp || TOUCH;
+  $$('#pinSlots .slot').forEach((s, i) => {
+    s.classList.toggle('filled', i < v.length);
+    s.classList.toggle('active', focused && i === Math.min(v.length, 5) && v.length < 6);
+  });
+}
+function loginError(msg, wrongPin) {
+  $('#loginErr').textContent = msg;
+  const card = $('#loginCard'), field = $('.pin-field');
+  card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  field.classList.add('error');
+  if (wrongPin) { $('#pin').value = ''; renderPinSlots(); }
+  if (!TOUCH) $('#pin').focus();
+}
+function setGreeting() {
+  const h = new Date().getHours();
+  $('#loginGreet').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+(function initLoginUI() {
+  const inp = $('#pin');
+  if (TOUCH) inp.readOnly = true;                  // on phones the keypad is used, so the system keyboard stays closed
+  const clearErr = () => { $('#loginErr').textContent = ''; $('.pin-field').classList.remove('error'); };
+  inp.addEventListener('input', () => { clearErr(); renderPinSlots(); });
+  inp.addEventListener('focus', renderPinSlots);
+  inp.addEventListener('blur', renderPinSlots);
+  $('#keypad').addEventListener('click', e => {
+    const b = e.target.closest('[data-k]');
+    if (!b) return;
+    const k = b.dataset.k;
+    if (k === 'back') inp.value = inp.value.slice(0, -1);
+    else if (k === 'clear') inp.value = '';
+    else if (inp.value.length < 6) inp.value += k;
+    clearErr(); renderPinSlots();
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (x) {} }
+  });
+  setGreeting();
+  renderPinSlots();
+})();
 
 /** Show the app from startup data (from login, init, or the last session's saved copy). */
 function startApp(b) {
