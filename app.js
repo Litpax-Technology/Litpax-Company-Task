@@ -1520,6 +1520,8 @@ function attachMention(ta) {
   ta.addEventListener('blur', () => setTimeout(close, 150));
 }
 
+const notifVerb = n => n.Type === 'assign' ? ' assigned you' : ' tagged you in';
+
 function setUnread(n) {
   S.unread = n || 0;
   const b = $('#bellCount');
@@ -1533,7 +1535,7 @@ function setNotifs(r) {
   S.notifs = r.notifs || r.rows || [];
   S.notifsLoaded = true;
   setUnread(r.unread);
-  if (wasLoaded && S.unread > before && S.notifs[0]) toast(userName(S.notifs[0].FromUser) + ' tagged you in "' + S.notifs[0].TaskTitle + '"');
+  if (wasLoaded && S.unread > before && S.notifs[0]) toast(userName(S.notifs[0].FromUser) + notifVerb(S.notifs[0]) + ' "' + S.notifs[0].TaskTitle + '"');
   if (!$('#bellPanel').classList.contains('hidden')) drawBell();
 }
 async function pollNotifs() {
@@ -1551,7 +1553,7 @@ function drawBell() {
       <div class="notif ${String(n.Read).toUpperCase() === 'TRUE' ? '' : 'unread'}" data-n="${esc(n.NotifID)}" data-t="${esc(n.TaskID)}">
         <span class="notif-dot"></span>
         <div class="notif-body">
-          <div><b>${esc(userName(n.FromUser))}</b> tagged you in <b>${esc(n.TaskTitle)}</b></div>
+          <div><b>${esc(userName(n.FromUser))}</b>${esc(notifVerb(n))} <b>${esc(n.TaskTitle)}</b></div>
           <div class="notif-msg">${renderMentions(n.Message)}</div>
           <div class="notif-time">${esc(niceDateTime(n.CreatedAt))}</div>
         </div>
