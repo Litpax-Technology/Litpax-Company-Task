@@ -1,5 +1,5 @@
 /* Litpax Tasks — service worker: caches the app shell, never API calls */
-const CACHE = 'litpax-tasks-v2';   // bump this on every frontend update
+const CACHE = 'litpax-tasks-v3';   // bump this on every frontend update
 const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
