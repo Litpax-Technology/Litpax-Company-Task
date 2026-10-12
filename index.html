@@ -19,16 +19,47 @@
 
   <!-- ============ LOGIN ============ -->
   <div id="loginView" class="login-wrap">
-    <div class="login-card fade-in">
-      <div class="login-logo">LT</div>
-      <h1 class="login-title">Litpax Tasks</h1>
-      <p class="muted">Enter your PIN to continue</p>
-      <form id="loginForm" autocomplete="off">
-        <input id="pin" class="input pin-input" type="password" inputmode="numeric" maxlength="6" placeholder="••••" aria-label="PIN" />
-        <button id="loginBtn" type="submit" class="btn btn-primary btn-block">Log in</button>
-      </form>
-      <div id="loginErr" class="err" role="alert"></div>
-    </div>
+    <aside class="login-hero">
+      <div class="hero-brand"><span class="login-logo">LT</span><span>Litpax Technology</span></div>
+      <div class="hero-copy">
+        <h1 class="hero-title">Plan the week.<br />Close every task.</h1>
+        <p class="hero-sub">Tasks, approvals and Monday scores for every team, in one place.</p>
+        <ul class="hero-points">
+          <li>Assign and track work across departments</li>
+          <li>Due date changes with manager approval</li>
+          <li>Weekly score and commitments for the review meeting</li>
+        </ul>
+      </div>
+      <div class="hero-foot">Internal use · Litpax Technology Pvt. Ltd.</div>
+    </aside>
+
+    <main class="login-panel">
+      <div class="login-card" id="loginCard">
+        <div class="login-mobile-brand"><span class="login-logo">LT</span><span>Litpax Tasks</span></div>
+        <p class="login-greet" id="loginGreet">Welcome back</p>
+        <h2 class="login-title">Sign in to Litpax Tasks</h2>
+        <p class="login-hint">Enter your 4–6 digit PIN</p>
+        <form id="loginForm" autocomplete="off">
+          <label class="pin-field" for="pin">
+            <input id="pin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="PIN" />
+            <span class="pin-slots" id="pinSlots" aria-hidden="true">
+              <span class="slot"></span><span class="slot"></span><span class="slot"></span>
+              <span class="slot"></span><span class="slot opt"></span><span class="slot opt"></span>
+            </span>
+          </label>
+          <div class="keypad" id="keypad">
+            <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+            <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+            <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+            <button type="button" data-k="clear" class="kp-fn">Clear</button><button type="button" data-k="0">0</button>
+            <button type="button" data-k="back" class="kp-fn" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg></button>
+          </div>
+          <button id="loginBtn" type="submit" class="btn btn-primary btn-block login-btn">Sign in</button>
+        </form>
+        <div id="loginErr" class="err" role="alert"></div>
+      </div>
+      <div class="login-foot">Forgot your PIN? Ask the MIS team to reset it.</div>
+    </main>
   </div>
 
   <!-- ============ APP ============ -->
