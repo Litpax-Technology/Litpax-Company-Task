@@ -533,7 +533,7 @@ async function viewMy() {
   const week = open.filter(t => t.DueDate > today && t.DueDate <= we);
   const later = open.filter(t => t.DueDate > we);
   const doneWk = rows.filter(t => t.Status === DONE);
-  const sc = quickScore(rows.filter(t => t.DueDate >= ws && (t.DueDate < today || (t.DueDate === today && t.Status === DONE))));
+  const sc = quickScore(rows.filter(t => t.DueDate >= ws && t.DueDate <= we && (t.DueDate < today || t.Status === DONE)));
 
   const section = (title, list, emptyText) => `
     <div class="sec-title">${esc(title)} <span class="count">${list.length}</span></div>
@@ -884,7 +884,7 @@ async function viewMeeting() {
       <b>Weighted</b> = % not done on time, weighted by priority (${S.cfg.priorities.map(p => esc(p.name) + ' ×' + p.weight).join(', ')}) &nbsp;·&nbsp;
       <b>Avg Delay</b> = average days late across late or pending tasks &nbsp;·&nbsp; <b>Recurring</b> = daily/weekly tasks done on time &nbsp;·&nbsp;
       Week runs Monday–Sunday and is frozen automatically on Monday at 00:00 IST.
-      ${r.live ? ' Live view counts tasks due before today, plus today\'s tasks already done.' : ''}
+      ${r.live ? ' Live view counts tasks due before today, plus every task already done this week.' : ''}
     </div>`;
 
   $('#wPrev').onclick = () => { w.week = addDays(r.week, -7); viewMeeting(); };
@@ -928,9 +928,11 @@ function targetResult(x) {
 
 function scoreRow(x, trend) {
   const res = targetResult(x), score = scoreOf(x), committed = committedOf(x);
-  const pts = trend.concat([{ week: x.WeekStart, late: x.LatePct, cur: true }]).slice(-5);
+  // Weeks with no planned tasks have no score, so they get no bar
+  const past = trend.filter(p => Number(p.p) > 0);
+  const pts = past.concat(Number(x.Planned) > 0 ? [{ week: x.WeekStart, late: x.LatePct, cur: true }] : []).slice(-5);
   const bars = pts.map(p => `<span class="${p.cur ? 'cur' : ''}" style="height:${Math.max(3, Math.round((100 + Number(p.late)) / 100 * 22))}px" title="${esc(niceDate(p.week))}: score ${esc(fmtPct(100 + Number(p.late)))}"></span>`).join('');
-  const prev = trend.length ? Number(trend[trend.length - 1].late) : null;
+  const prev = past.length && Number(x.Planned) > 0 ? Number(past[past.length - 1].late) : null;
   const arrow = prev === null ? '' : Number(x.LatePct) > prev ? '<span class="txt-ok small">▲</span>' : Number(x.LatePct) < prev ? '<span class="txt-bad small">▼</span>' : '<span class="faint small">=</span>';
   return `<tr>
     <td><div style="font-weight:600">${esc(x.Name)}</div><div class="faint small">${esc(x.Department || '')}</div></td>
@@ -944,7 +946,7 @@ function scoreRow(x, trend) {
     <td class="num">${Number(x.AvgDelayDays) ? esc(x.AvgDelayDays) + 'd' : '—'}</td>
     <td class="num">${Number(x.Revisions) || '—'}</td>
     <td class="num">${x.RecurringPct === '' ? '—' : fmtPct(x.RecurringPct)}</td>
-    <td><span class="trend">${bars}</span> ${arrow}</td></tr>`;
+    <td>${bars ? `<span class="trend">${bars}</span> ${arrow}` : '<span class="faint">—</span>'}</td></tr>`;
 }
 
 function togglePresent() {
