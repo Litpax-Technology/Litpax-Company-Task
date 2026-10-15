@@ -1,7 +1,6 @@
 /* Litpax Tasks — service worker: caches the app shell, never API calls */
-const CACHE = 'litpax-tasks-v4';   // bump this on every frontend update
-const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.json', './icon.svg',
-  './assets/litpax-logo-light.png', './assets/litpax-logo-dark.png', './assets/favicon.png'];
+const CACHE = 'litpax-tasks-v6';   // bump this on every frontend update
+const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
