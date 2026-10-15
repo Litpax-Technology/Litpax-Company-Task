@@ -19,84 +19,78 @@
 <body>
 
     <!-- ============ LOGIN ============ -->
-  <div id="loginView" class="lg">
-    <section class="lg-hero">
-      <div class="lg-top">
-        <div class="lg-brand">
-          <img src="assets/litpax-logo-light.png" alt="Litpax" class="brand-logo" />
-          <span class="brand-sep"></span><span class="brand-app">Tasks</span>
-        </div>
-        <span class="lg-pill">
-          <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-          Internal workspace
-        </span>
-      </div>
+  <div id="loginView" class="lt">
+    <header class="lt-top">
+      <img src="assets/litpax-logo-dark.png" alt="Litpax Technology" class="lt-logo" />
+      <span class="lt-tag">Internal · Tasks</span>
+    </header>
 
-      <div class="lg-art" aria-hidden="true">
-        <div class="lg-stage">
-          <div class="lg-card c-main">
-            <div class="lc-top">
-              <div><div class="lc-title">Weekly Review</div><div class="lc-sub">Production · Monday meeting</div></div>
-              <span class="lc-badge">On track</span>
-            </div>
-            <div class="lc-score">
-              <div class="ring"><b>86%</b></div>
-              <div class="lc-nums">
-                <div><span>Planned</span><b>14</b></div>
-                <div><span>Done</span><b class="acc">12</b></div>
-                <div><span>Delayed</span><b class="bad">2</b></div>
+    <main class="lt-main">
+      <section class="lt-pitch">
+        <span class="lt-kicker"><i></i>Weekly review every Monday</span>
+        <h1>Every task has an owner,<br />a date and a <em>score</em>.</h1>
+        <p>Assign work across departments, approve due date changes and walk into Monday's meeting with every team's score ready.</p>
+
+        <div class="kb" aria-hidden="true">
+          <div class="kb-col">
+            <div class="kb-head">To do <b>4</b></div>
+            <div class="kb-slot"></div>
+            <div class="kb-card"><span>Vendor follow-up for cells</span><small>Fri · Store</small></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-head">In progress <b>3</b></div>
+            <div class="kb-slot"></div>
+            <div class="kb-card prog"><span>BMS testing report</span><small>Today · R&amp;D</small></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-head">Done <b>12</b></div>
+            <div class="kb-slot"></div>
+            <div class="kb-card done"><span>Daily line plan updated</span><small>Daily · Production</small></div>
+          </div>
+          <div class="kb-mover"><span>Dispatch plan shared</span><small>Today · Dispatch</small></div>
+        </div>
+
+        <div class="lt-stats">
+          <div><b>86%</b><span>done on time this week</span></div>
+          <div><b>12/14</b><span>tasks closed</span></div>
+          <div><b>2</b><span>date changes approved</span></div>
+        </div>
+      </section>
+
+      <section class="lt-side">
+        <div class="lt-card" id="loginCard">
+          <div class="lt-band">
+            <img src="assets/litpax-logo-light.png" alt="Litpax" class="lt-band-logo" />
+            <p class="login-greet" id="loginGreet">Welcome back</p>
+            <h2 class="login-title">Sign in to Litpax Tasks</h2>
+          </div>
+          <div class="lt-body">
+            <p class="login-hint">Enter your 4-digit PIN</p>
+            <form id="loginForm" autocomplete="off">
+              <label class="pin-field" for="pin">
+                <input id="pin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="PIN" />
+                <span class="pin-slots" id="pinSlots" aria-hidden="true">
+                  <span class="slot"></span><span class="slot"></span><span class="slot"></span>
+                  <span class="slot"></span><span class="slot opt"></span><span class="slot opt"></span>
+                </span>
+              </label>
+              <div class="keypad" id="keypad">
+                <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+                <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+                <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+                <button type="button" data-k="clear" class="kp-fn">Clear</button><button type="button" data-k="0">0</button>
+                <button type="button" data-k="back" class="kp-fn" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg></button>
               </div>
-            </div>
-            <div class="lc-rows">
-              <div class="lc-row"><i class="ck done"></i><span>Daily line plan updated</span><em>Daily</em></div>
-              <div class="lc-row"><i class="ck done"></i><span>Dispatch plan shared</span><em>Today</em></div>
-              <div class="lc-row"><i class="ck tick"></i><span>Vendor follow-up for cells</span><em>Fri</em></div>
-            </div>
+              <button id="loginBtn" type="submit" class="btn btn-primary btn-block login-btn">Sign in</button>
+            </form>
+            <div id="loginErr" class="err" role="alert"></div>
           </div>
-          <div class="lg-card c-float c1"><span class="fi ok">✓</span><div><b>Task completed</b><small>Marked done on time</small></div></div>
-          <div class="lg-card c-float c2"><span class="fi">⏱</span><div><b>Due date change</b><small>Waiting for manager approval</small></div></div>
         </div>
-      </div>
+        <p class="lt-foot">Forgot your PIN? Ask the MIS team to reset it.</p>
+      </section>
+    </main>
 
-      <div class="lg-copy">
-        <div class="lg-kicker">Tasks · Approvals · Weekly score</div>
-        <h1>Plan the week.<br />Close every task.</h1>
-        <p>Assign and track work across departments, with due date approvals and a Monday score for every team.</p>
-        <div class="lg-steps">
-          <span><i>1</i>Assign</span><span><i>2</i>Track</span>
-          <span><i>3</i>Approve</span><span><i>4</i>Score</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="lg-side">
-      <div class="lg-box" id="loginCard">
-        <img src="assets/litpax-logo-dark.png" alt="Litpax" class="card-logo" />
-        <p class="login-greet" id="loginGreet">Welcome back</p>
-        <h2 class="login-title">Sign in to Litpax Tasks</h2>
-        <p class="login-hint">Enter your 4–6 digit PIN</p>
-        <form id="loginForm" autocomplete="off">
-          <label class="pin-field" for="pin">
-            <input id="pin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="PIN" />
-            <span class="pin-slots" id="pinSlots" aria-hidden="true">
-              <span class="slot"></span><span class="slot"></span><span class="slot"></span>
-              <span class="slot"></span><span class="slot opt"></span><span class="slot opt"></span>
-            </span>
-          </label>
-          <div class="keypad" id="keypad">
-            <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
-            <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
-            <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
-            <button type="button" data-k="clear" class="kp-fn">Clear</button><button type="button" data-k="0">0</button>
-            <button type="button" data-k="back" class="kp-fn" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg></button>
-          </div>
-          <button id="loginBtn" type="submit" class="btn btn-primary btn-block login-btn">Sign in</button>
-        </form>
-        <div id="loginErr" class="err" role="alert"></div>
-      </div>
-      <div class="lg-foot">Forgot your PIN? Ask the MIS team to reset it.</div>
-      <div class="lg-copyr">© Litpax Technology Pvt. Ltd.</div>
-    </section>
+    <footer class="lt-copy">© Litpax Technology Pvt. Ltd.</footer>
   </div>
 
   <!-- ============ APP ============ -->
