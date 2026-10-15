@@ -416,6 +416,8 @@ body.present .tbl td { padding: 14px 16px; }
 @media print {
   .sidebar, .topbar, .filters, .week-bar .btn, .no-print { display: none !important; }
   .page { padding: 0; }
+  .card { box-shadow: none; }
+}
 
 /* ===== Litpax branded login (same as Service Hub / Cash Ledger) ===== */
 .lg { min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr; background: #fafafc; }
@@ -531,10 +533,6 @@ body.present .tbl td { padding: 14px 16px; }
 @media (prefers-reduced-motion: reduce) {
   .c-main, .c-float, .ck.tick, .ck.tick::after, .lg-box { animation: none !important; }
 }
-
-  .card { box-shadow: none; }
-}
-
 
 .lg-box.shake { animation: lgShake .4s ease; }
 @keyframes lgShake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
