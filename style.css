@@ -427,7 +427,7 @@ body.present .tbl td { padding: 14px 16px; }
 .lt > * { position: relative; }
 
 .lt-top { display: flex; align-items: center; justify-content: space-between; padding: 22px 40px; }
-.lt-logo { height: 32px; width: auto; display: block; }
+.lt-logo { height: 34px; width: auto; display: block; }
 .lt-tag { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); border: 1px solid var(--border);
   padding: 6px 12px; border-radius: 20px; }
 
@@ -473,7 +473,7 @@ body.present .tbl td { padding: 14px 16px; }
 .lt-band::after { content: ''; position: absolute; width: 280px; height: 280px; right: -100px; top: -130px; border-radius: 50%;
   background: radial-gradient(circle, rgba(99,91,255,.6), rgba(99,91,255,0) 65%); }
 .lt-band > * { position: relative; z-index: 1; }
-.lt-band-logo { height: 28px; width: auto; display: block; margin-bottom: 22px; }
+.lt-band-logo { height: 30px; width: auto; display: block; margin-bottom: 22px; }
 .lt-band .login-greet { color: #a9a5ff; }
 .lt-band .login-title { color: #fff; margin: 0; }
 .lt-body { padding: 22px 28px 24px; }
