@@ -60,7 +60,8 @@ function patchTask(t) {
 
 /* ---------------- Icons ---------------- */
 const IC = {
-  my: '<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>',
+  home: '<svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
+  my:'<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>',
   board: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>',
   tasks: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
   approvals: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 15l2 2 4-4"/></svg>',
@@ -81,11 +82,12 @@ const IC = {
 };
 
 const NAV = [
+  { id: 'home', label: 'Home', roles: MGR },
   { id: 'my', label: 'My Tasks', roles: ALL },
-  { id: 'board', label: 'Board', roles: ALL },
+  { id: 'board', label: 'Board', roles: ALL, hide: true },     // opened from the List / Board toggle
   { id: 'tasks', label: 'All Tasks', roles: MGR },
   { id: 'approvals', label: 'Approvals', roles: ALL },
-  { id: 'meeting', label: 'Weekly Meeting', memberLabel: 'My Score', roles: ALL },
+  { id: 'meeting', label: 'Weekly Review', memberLabel: 'My Score', roles: ALL },
   { sec: 'Manage', roles: MGR },
   { id: 'templates', label: 'Recurring Tasks', roles: MGR },
   { id: 'projects', label: 'Projects', roles: MGR },
@@ -251,7 +253,7 @@ function rerender() {
   try { VIEWS[S.view](); } finally { S.cacheOnly = false; setTimeout(() => { S.silent = false; }, 0); }
 }
 function prefetch() {
-  const jobs = [['listTasks', boardParams()], ['weeklyScores', meetingParams()], ['listRevisions', { status: 'Pending' }]];
+  const jobs = [['listTasks', boardParams()], ['weeklyScores', meetingParams()], ['weeklyScores', curWeekParams()], ['listRevisions', { status: 'Pending' }]];
   if (isMgr()) jobs.push(['listTemplates', {}]);
   const gen = S.mutGen;
   jobs.forEach(([a, p]) => call(a, p).then(r => { if (gen === S.mutGen) vcSet(vcKey(a, p), r); }).catch(() => {}));
@@ -347,12 +349,14 @@ function exportCSV(name, cols, rows) {
    ================================================================= */
 async function doLogin(e) {
   e.preventDefault();
-  const pin = $('#pin').value.trim(), err = $('#loginErr');
+  const emp = $('#empId').value.trim().toUpperCase(), pin = $('#pin').value.trim(), err = $('#loginErr');
   err.textContent = '';
+  if (!emp) { loginError('Enter your Employee ID.', false); if (!TOUCH) $('#empId').focus(); return; }
   if (!/^\d{4}$/.test(pin)) { loginError('Enter your 4-digit PIN.', false); return; }
   await busy($('#loginBtn'), async () => {
     try {
-      const r = await api('login', { pin });
+      const r = await api('login', { emp, pin });
+      if (r.ok) store.set('lastEmp', emp);
       if (!r.ok) { loginError(r.message || 'Login failed.', true); return; }
       S.token = r.token;
       store.set('session', { token: r.token });
@@ -389,10 +393,17 @@ function loginError(msg, wrongPin) {
 function setGreeting() {
   const h = new Date().getHours();
   $('#loginGreet').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  $('.login-hint').textContent = 'Enter your 4-digit PIN';
+}
+/** Focus Employee ID when empty, otherwise the PIN. */
+function focusLogin() {
+  if (TOUCH) return;
+  ($('#empId').value ? $('#pin') : $('#empId')).focus();
 }
 (function initLoginUI() {
   const inp = $('#pin');
+  $('#empId').value = store.get('lastEmp') || '';
+  $('#empId').addEventListener('input', () => { $('#loginErr').textContent = ''; });
+  $('#empId').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.focus(); } });
   if (TOUCH) inp.readOnly = true;                  // on phones the keypad is used, so the system keyboard stays closed
   const clearErr = () => { $('#loginErr').textContent = ''; $('.pin-field').classList.remove('error'); };
   inp.addEventListener('input', () => { clearErr(); renderPinSlots(); autoSubmitPin(); });
@@ -461,31 +472,33 @@ function logout(expired) {
   $('#modalRoot').innerHTML = '';
   document.body.classList.remove('present');
   if (expired) $('#loginErr').textContent = 'Session expired. Please log in again.';
-  setTimeout(() => $('#pin').focus(), 50);
+  setTimeout(focusLogin, 50);
 }
 
 /* =================================================================
    Navigation
    ================================================================= */
 function buildNav() {
-  $('#nav').innerHTML = NAV.filter(n => n.roles.includes(S.me.role)).map(n => n.sec
+  $('#nav').innerHTML = NAV.filter(n => n.roles.includes(S.me.role) && !n.hide).map(n => n.sec
     ? `<div class="nav-sec">${esc(n.sec)}</div>`
     : `<a class="nav-item" data-id="${n.id}" href="#${n.id}">${IC[n.id]}<span>${esc(S.me.role === 'Member' && n.memberLabel ? n.memberLabel : n.label)}</span>
        ${n.id === 'approvals' ? '<span class="nav-badge hidden">0</span>' : ''}</a>`).join('');
 }
 
 const VIEWS = {
-  my: viewMy, board: viewBoard, tasks: viewTasks, approvals: viewApprovals, meeting: viewMeeting,
+  home: viewHome, my: viewMy, board: viewBoard, tasks: viewTasks, approvals: viewApprovals, meeting: viewMeeting,
   templates: viewTemplates, projects: viewProjects, users: viewUsers, settings: viewSettings
 };
 
 function route() {
   if (!S.me) return;
-  let id = location.hash.replace('#', '') || 'my';
+  const landing = isMgr() ? 'home' : 'my';               // Admin/Manager start on Home, Members on My Tasks
+  let id = location.hash.replace('#', '') || landing;
   const n = NAV.find(x => x.id === id);
-  if (!n || !n.roles.includes(S.me.role)) id = 'my';
+  if (!n || !n.roles.includes(S.me.role)) id = landing;
   S.view = id;
-  $$('#nav .nav-item').forEach(a => a.classList.toggle('active', a.dataset.id === id));
+  const navId = id === 'board' ? 'my' : id;              // Board lives under My Tasks
+  $$('#nav .nav-item').forEach(a => a.classList.toggle('active', a.dataset.id === navId));
   closeSidebar();
   const page = $('#page');
   page.style.animation = 'none'; void page.offsetWidth; page.style.animation = '';
@@ -521,8 +534,160 @@ function closeSidebar() { $('#sidebar').classList.remove('open'); $('#scrim').cl
    VIEW: My Tasks
    ================================================================= */
 const myParams = () => ({ scope: 'my', active: '1', pageSize: 1000 });
+
+/* =================================================================
+   VIEW: Home (Admin / Manager landing)
+   ================================================================= */
+/** Team score per week: past frozen weeks from the trend + the current week. */
+function teamSeries(r, keep) {
+  const by = {};
+  Object.keys(r.trend || {}).forEach(uid => {
+    if (keep && !keep(uid)) return;
+    (r.trend[uid] || []).forEach(p => {
+      if (!(Number(p.p) > 0)) return;
+      const w = by[p.week] || (by[p.week] = { p: 0, o: 0 });
+      w.p += Number(p.p); w.o += Number(p.p) * (100 + Number(p.late)) / 100;
+    });
+  });
+  const series = Object.keys(by).sort().map(k => Math.round(by[k].o / by[k].p * 1000) / 10);
+  const P = r.rows.reduce((s, x) => s + (Number(x.Planned) || 0), 0), O = r.rows.reduce((s, x) => s + (Number(x.OnTime) || 0), 0);
+  return { past: series, cur: P ? Math.round(O / P * 1000) / 10 : '', P, O };
+}
+function sparkPoints(vals) {
+  if (vals.length < 2) return '';
+  const mn = Math.min(...vals), mx = Math.max(...vals), rg = mx - mn || 1;
+  return vals.map((v, i) => (i / (vals.length - 1) * 100).toFixed(1) + ',' + (26 - (v - mn) / rg * 22).toFixed(1)).join(' ');
+}
+
+async function viewHome() {
+  setTop('Home', newTaskBtn()); bindNewTask();
+  const wk = curWeekParams(), rv = { status: 'Pending' }, mp = myParams();
+  const have = vcGet(vcKey('weeklyScores', wk)) && vcGet(vcKey('listRevisions', rv)) && vcGet(vcKey('listTasks', mp));
+  if (!have || S.fresh) skel(6);
+  const res = await load(() => Promise.all([
+    fetchSWR('home', 'weeklyScores', wk, viewHome, { raw: true }),
+    fetchSWR('home', 'listRevisions', rv, viewHome, { raw: true }),
+    fetchSWR('home', 'listTasks', mp, viewHome, { raw: true })
+  ]), viewHome);
+  if (!res || S.view !== 'home') return;
+  const [sc, rvs, my] = res;
+  cacheTasks(my.rows); cacheTasks(sc.overdue || []);
+
+  const today = todayStr(), h = new Date().getHours();
+  const hello = (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening') + ', ' + String(S.me.name).split(/\s+/)[0];
+  const ser = teamSeries(sc);
+  const prev = ser.past.length ? ser.past[ser.past.length - 1] : '';
+  const delta = ser.cur !== '' && prev !== '' ? Math.round((ser.cur - prev) * 10) / 10 : null;
+  const spark = sparkPoints(ser.cur === '' ? ser.past : ser.past.concat([ser.cur]));
+  const myOpen = my.rows.filter(t => t.Status !== DONE);
+  const myLate = myOpen.filter(t => t.DueDate < today), myToday = myOpen.filter(t => t.DueDate === today);
+  const focus = myLate.concat(myToday).slice(0, 6);
+  const reviewable = rvs.rows.filter(x => x.canReview);
+  setPending(reviewable.length);
+  const lateBy = [...new Set((sc.overdue || []).map(t => t.AssignedTo))].length;
+
+  const depts = {};
+  sc.rows.forEach(x => {
+    if (!(Number(x.Planned) > 0)) return;
+    const k = x.Department || 'Other', d = depts[k] || (depts[k] = { p: 0, o: 0 });
+    d.p += Number(x.Planned); d.o += Number(x.OnTime);
+  });
+  const pulse = Object.keys(depts).map(k => ({ name: k, v: Math.round(depts[k].o / depts[k].p * 100) })).sort((a, b) => b.v - a.v);
+
+  $('#page').innerHTML = `
+    <div class="home-head">
+      <div><p>${esc(niceDate(today, true))} · ${esc(weekLabel(sc.week))}</p><h1>${esc(hello)}</h1></div>
+    </div>
+
+    <section class="hk" aria-label="Key numbers">
+      <div class="card">
+        <div class="hk-top"><span>Team score · this week</span>${delta === null ? '' : `<span class="hk-delta ${delta >= 0 ? 'up' : 'down'}">${delta > 0 ? '+' : delta < 0 ? '−' : ''}${Math.abs(delta)} pts</span>`}</div>
+        <div class="hk-val">${fmtPct(ser.cur)}</div>
+        ${spark ? `<svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="${spark}"/></svg>` : ''}
+        <div class="hk-sub">${ser.O} of ${ser.P} tasks done on time so far</div>
+      </div>
+      <div class="card">
+        <div class="hk-top"><span>Open overdue · team</span></div>
+        <div class="hk-val ${sc.overdue.length ? 'bad' : ''}">${sc.overdue.length}</div>
+        <div class="hk-sub">${sc.overdue.length ? 'Across ' + lateBy + ' employee' + (lateBy === 1 ? '' : 's') : 'Nothing overdue'}</div>
+      </div>
+      <div class="card">
+        <div class="hk-top"><span>My tasks today</span></div>
+        <div class="hk-val">${myToday.length}</div>
+        <div class="hk-sub">${myLate.length ? myLate.length + ' of mine overdue' : 'None of mine overdue'}</div>
+      </div>
+      <div class="card">
+        <div class="hk-top"><span>Waiting for approval</span></div>
+        <div class="hk-val">${reviewable.length}</div>
+        <div class="hk-sub">Date change requests</div>
+      </div>
+    </section>
+
+    <div class="home-grid">
+      <div class="home-main">
+        <section class="card">
+          <div class="card-head"><h3>Focus for today</h3><a href="#my">My Tasks</a></div>
+          ${focus.length ? focus.map(t => {
+            const late = t.DueDate < today;
+            return `<div class="focus-row" data-open="${esc(t.TaskID)}">
+              ${canStatus(t) ? `<button class="check" data-tick="${esc(t.TaskID)}" aria-label="Mark as done" title="Mark as done"></button>` : ''}
+              <div class="focus-main"><div class="focus-title">${esc(t.Title)}</div>
+                <div class="focus-meta">${esc([projName(t.ProjectID), t.Priority + ' priority'].filter(Boolean).join(' · '))}</div></div>
+              <span class="pill ${late ? 'late' : 'today'}">${late ? daysBetween(t.DueDate, today) + 'd late' : 'Today'}</span>
+            </div>`;
+          }).join('') : '<div class="empty small">Nothing due today. You are all caught up.</div>'}
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>Team pulse · done on time</h3><a href="#meeting">Weekly Review</a></div>
+          ${pulse.length ? `<div class="pulse">${pulse.map(p => `
+            <div class="pulse-row"><span>${esc(p.name)}</span><span class="bar"><span class="${p.v < 70 ? 'low' : ''}" style="width:${p.v}%"></span></span><b>${p.v}%</b></div>`).join('')}</div>`
+            : '<div class="empty small">No tasks have come due this week yet.</div>'}
+        </section>
+      </div>
+
+      <div class="home-side">
+        <section class="card">
+          <div class="card-head"><h3>Waiting for your approval</h3><a href="#approvals">View all</a></div>
+          ${reviewable.length ? reviewable.slice(0, 5).map(x => `
+            <div class="appr">
+              <div class="appr-title" data-open="${esc(x.TaskID)}">${esc(x.TaskTitle)}</div>
+              <div class="appr-meta">${esc(userName(x.RequestedBy))} · <s>${esc(niceDate(x.OldDate))}</s> → <b>${esc(niceDate(x.NewDate))}</b> · “${esc(x.Reason)}”</div>
+              <div class="row"><button class="btn btn-ghost btn-sm" data-rev="${esc(x.RevisionID)}" data-d="Rejected">Reject</button>
+                <button class="btn btn-primary btn-sm" data-rev="${esc(x.RevisionID)}" data-d="Approved">Approve</button></div>
+            </div>`).join('') : '<div class="empty small">No requests waiting.</div>'}
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>Team overdue</h3><span class="badge ${sc.overdue.length ? 'st-bad' : ''}">${sc.overdue.length}</span></div>
+          ${sc.overdue.length ? sc.overdue.slice(0, 6).map(t => `
+            <div class="od-row" data-open="${esc(t.TaskID)}"><span class="t">${esc(t.Title)}</span>
+              <span class="muted small">${esc(userName(t.AssignedTo))}</span>
+              <span class="pill late">${daysBetween(t.DueDate, today)}d</span></div>`).join('') : '<div class="empty small">Nothing overdue.</div>'}
+        </section>
+      </div>
+    </div>`;
+
+  $$('[data-rev]').forEach(b => b.onclick = () => busy(b, async () => {
+    try {
+      await call('reviewRevision', { id: b.dataset.rev, decision: b.dataset.d, reqId: newReqId() });
+      toast('Request ' + b.dataset.d.toLowerCase());
+      refresh();
+    } catch (e) { toast(e.message, false); }
+  }));
+}
+const curWeekParams = () => ({ week: mondayOf(todayStr()) });
+
+/** List / Board switch shown on My Tasks and Board. */
+function viewToggle(active) {
+  return `<div class="seg" role="group" aria-label="View">
+    <button type="button" class="${active === 'my' ? 'on' : ''}" data-go="my" aria-pressed="${active === 'my'}">List</button>
+    <button type="button" class="${active === 'board' ? 'on' : ''}" data-go="board" aria-pressed="${active === 'board'}">Board</button></div>`;
+}
+function bindToggle() { $$('#topActions [data-go]').forEach(b => b.onclick = () => { if (S.view !== b.dataset.go) location.hash = '#' + b.dataset.go; }); }
+
 async function viewMy() {
-  setTop('My Tasks', newTaskBtn()); bindNewTask();
+  setTop('My Tasks', viewToggle('my') + newTaskBtn()); bindToggle(); bindNewTask();
   const r = await fetchSWR('my', 'listTasks', myParams(), viewMy);
   if (!r || S.view !== 'my') return;
   cacheTasks(r.rows);
@@ -535,27 +700,44 @@ async function viewMy() {
   const doneWk = rows.filter(t => t.Status === DONE);
   const sc = quickScore(rows.filter(t => t.DueDate >= ws && t.DueDate <= we && (t.DueDate < today || t.Status === DONE)));
 
-  const section = (title, list, emptyText) => `
-    <div class="sec-title">${esc(title)} <span class="count">${list.length}</span></div>
-    ${list.length ? `<div class="tlist">${list.map(t => taskRow(t)).join('')}</div>`
-                  : emptyText ? `<div class="card empty small">${esc(emptyText)}</div>` : ''}`;
+  // Commitment for this week (from the weekly scores already saved on this device, if any)
+  const wsData = vcGet(vcKey('weeklyScores', curWeekParams()));
+  const mine = wsData && wsData.rows ? wsData.rows.find(x => x.UserID === S.me.id) : null;
+  const committed = mine ? committedOf(mine) : '';
+  const score = sc.P ? Math.round((100 + sc.late) * 10) / 10 : '';
+  const status = score === '' ? '' : committed === '' ? '' : score >= committed
+    ? '<span class="pill ok">On track</span>' : '<span class="pill late">Below commitment</span>';
+  const onTime = sc.P ? Math.round(sc.P * (100 + sc.late) / 100) : 0;
+
+  const group = (name, dot, list, emptyText) => (!list.length && !emptyText) ? '' : `
+    <section class="card tgroup">
+      <div class="tgroup-head"><span class="tgroup-dot ${dot}"></span><span class="tgroup-name">${esc(name)}</span><span class="tgroup-count">${list.length}</span></div>
+      ${list.length ? `<div class="tlist">${list.map(t => taskRow(t)).join('')}</div>` : `<div class="tgroup-empty">${esc(emptyText)}</div>`}
+    </section>`;
 
   $('#page').innerHTML = `
-    <div class="kpis">
-      <div class="card kpi ${overdue.length ? 'alert' : ''}"><div class="kpi-label">Overdue</div><div class="kpi-value">${overdue.length}</div></div>
-      <div class="card kpi"><div class="kpi-label">Due Today</div><div class="kpi-value">${dueToday.length}</div></div>
-      <div class="card kpi"><div class="kpi-label">Rest of Week</div><div class="kpi-value">${week.length}</div></div>
-      <div class="card kpi"><div class="kpi-label">Done This Week</div><div class="kpi-value">${doneWk.length}</div></div>
-      <div class="card kpi accent"><div class="kpi-label">Week Score (to date)</div>
-        <div class="kpi-value">${fmtPct(sc.nd)} <span class="small muted">/ ${fmtPct(sc.late)}</span></div>
-        <div class="kpi-sub">Not done / Not on time · ${sc.P} planned</div></div>
-    </div>
-    ${!rows.length ? `<div class="card empty mt"><div class="empty-ico">✓</div>You have no tasks right now.</div>` : `
-    ${overdue.length ? section('Overdue', overdue) : ''}
-    ${section('Today', dueToday, 'Nothing due today.')}
-    ${week.length ? section('This Week', week) : ''}
-    ${later.length ? section('Later', later) : ''}
-    ${doneWk.length ? section('Completed This Week', doneWk.slice().sort((a, b) => String(b.CompletedAt).localeCompare(String(a.CompletedAt)))) : ''}`}`;
+    <section class="card ws" aria-label="This week">
+      <div class="ws-score">
+        <div class="ws-label">Week score · to date</div>
+        <div class="ws-big"><b>${score === '' ? '—' : fmtPct(score)}</b>${status}</div>
+      </div>
+      <div class="ws-mid">
+        <div class="ws-cap"><span>Done on time</span><span>${committed === '' ? 'No commitment set' : 'Committed ' + fmtPct(committed)}</span></div>
+        <div class="ws-bar"><span style="width:${score === '' ? 0 : Math.max(0, Math.min(100, score))}%"></span>${committed === '' ? '' : `<i style="left:${Math.max(0, Math.min(100, committed))}%" aria-hidden="true"></i>`}</div>
+      </div>
+      <dl class="ws-stats">
+        <div><dt>Planned</dt><dd>${sc.P}</dd></div>
+        <div><dt>On time</dt><dd>${onTime}</dd></div>
+        <div class="${overdue.length ? 'bad' : ''}"><dt>Overdue</dt><dd>${overdue.length}</dd></div>
+        <div><dt>Done this week</dt><dd>${doneWk.length}</dd></div>
+      </dl>
+    </section>
+    ${!rows.length ? `<div class="card empty"><div class="empty-ico">✓</div>You have no tasks right now.</div>` : `
+    ${group('Overdue', 'bad', overdue)}
+    ${group('Today', 'acc', dueToday, 'Nothing due today.')}
+    ${group('This week', '', week)}
+    ${group('Later', '', later)}
+    ${group('Completed this week', 'ok', doneWk.slice().sort((a, b) => String(b.CompletedAt).localeCompare(String(a.CompletedAt))))}`}`;
 }
 
 /** Same formulas as the server, for a quick personal view */
@@ -567,22 +749,38 @@ function quickScore(list) {
 }
 function fmtPct(v) { if (v === '' || v === null || v === undefined) return '—'; const n = Number(v); return (n === 0 ? '0' : n.toFixed(1).replace(/\.0$/, '')) + '%'; }
 
+/** Priority as 1–3 bars: highest-weight priority = 3 bars. */
+function prioLevel(p) {
+  const i = (S.cfg.priorities || []).findIndex(x => x.name === p);
+  return i === 0 ? 3 : i === 1 ? 2 : 1;
+}
+const prioBars = p => `<span class="pbars p${prioLevel(p)}" role="img" aria-label="${esc(p)} priority" title="${esc(p)} priority"><i></i><i></i><i></i></span>`;
+function dueCls(t) {
+  if (t.Status === DONE) return '';
+  const today = todayStr();
+  return t.DueDate < today ? 'late' : t.DueDate === today ? 'today' : '';
+}
+
 function taskRow(t, { showAssignee = false } = {}) {
   const done = t.Status === DONE, od = !done && t.DueDate < todayStr();
+  const person = showAssignee ? t.AssignedTo : t.AssignedBy;
+  const personLbl = (showAssignee ? 'Assigned to ' : 'Assigned by ') + userName(person);
+  const proj = projName(t.ProjectID);
+  const tags = [
+    !done && t.Status !== S.cfg.statuses[0] ? `<span class="mini-tag acc">${esc(t.Status)}</span>` : '',
+    t.Type && t.Type !== 'One-time' ? `<span class="mini-tag">${esc(t.Type)}</span>` : '',
+    Number(t.Revisions) > 0 ? `<span class="mini-tag">Revised ×${esc(t.Revisions)}</span>` : ''
+  ].join('');
   return `<div class="trow ${od ? 'is-overdue' : ''} ${done ? 'is-done' : ''}" data-open="${esc(t.TaskID)}">
-    ${canStatus(t) ? `<button class="check ${done ? 'on' : ''}" data-tick="${esc(t.TaskID)}" title="${done ? 'Reopen' : 'Mark as done'}" aria-label="Toggle done"></button>` : ''}
+    ${canStatus(t) ? `<button class="check ${done ? 'on' : ''}" data-tick="${esc(t.TaskID)}" title="${done ? 'Reopen' : 'Mark as done'}" aria-label="${done ? 'Reopen task' : 'Mark as done'}"></button>` : '<span class="no-check"></span>'}
     <div class="trow-main">
-      <div class="trow-title">${esc(t.Title)}</div>
-      <div class="trow-meta">
-        <span class="prio ${prioCls(t.Priority)}">${esc(t.Priority)}</span>
-        <span class="${od ? 'txt-bad' : ''}">${esc(dueText(t))}</span>
-        ${showAssignee ? `<span>${esc(userName(t.AssignedTo))}</span>` : ''}
-        ${t.ProjectID ? `<span>${esc(projName(t.ProjectID))}</span>` : ''}
-        ${t.Type && t.Type !== 'One-time' ? `<span class="tag">${esc(t.Type)}</span>` : ''}
-        ${Number(t.Revisions) > 0 ? `<span class="tag">Revised ×${esc(t.Revisions)}</span>` : ''}
-      </div>
+      <div class="trow-title"><span class="t">${esc(t.Title)}</span>${tags}</div>
+      <div class="trow-meta">${proj ? `<span>${esc(proj)}</span>` : ''}<span>${esc(t.Priority)} priority</span></div>
     </div>
-    ${statusBadge(t.Status)}
+    <span class="trow-proj ${proj ? '' : 'none'}">${esc(proj || '—')}</span>
+    ${prioBars(t.Priority)}
+    <span class="trow-due ${dueCls(t)}">${esc(dueText(t))}</span>
+    <span class="avatar" title="${esc(personLbl)}">${esc(initials(userName(person)))}</span>
   </div>`;
 }
 
@@ -627,7 +825,7 @@ function boardParams() {
 }
 async function viewBoard() {
   const params = boardParams(), f = S.board;
-  setTop('Board', newTaskBtn()); bindNewTask();
+  setTop('Board', viewToggle('board') + newTaskBtn()); bindToggle(); bindNewTask();
   const r = await fetchSWR('board', 'listTasks', params, viewBoard, { skel: 4 });
   if (!r || S.view !== 'board') return;
   cacheTasks(r.rows);
@@ -635,10 +833,12 @@ async function viewBoard() {
   const scopeOpts = [{ v: 'my', l: 'My tasks' }];
   if (isMgr()) scopeOpts.push({ v: 'team', l: 'My team' });
   if (isAdmin()) scopeOpts.push({ v: 'all', l: 'Everyone' });
-  const cols = S.cfg.statuses.map(st => {
+  const last = S.cfg.statuses.length - 1;
+  const cols = S.cfg.statuses.map((st, i) => {
     const list = r.rows.filter(t => t.Status === st);
+    const dot = st === DONE ? 'done' : i === 0 ? '' : i === last - 1 ? 'end' : 'mid';
     return `<div class="col" data-status="${esc(st)}">
-      <div class="col-head"><span>${esc(st)}</span><span class="badge">${list.length}</span></div>
+      <div class="col-head"><span class="col-name"><span class="col-dot ${dot}"></span>${esc(st)}</span><span class="badge">${list.length}</span></div>
       <div class="col-body">${list.map(boardCard).join('') || '<div class="faint small center" style="padding:16px 0">No tasks</div>'}</div></div>`;
   }).join('');
 
@@ -663,11 +863,18 @@ async function viewBoard() {
 
 function boardCard(t) {
   const od = t.Status !== DONE && t.DueDate < todayStr();
+  const proj = projName(t.ProjectID);
   return `<div class="tcard ${od ? 'is-overdue' : ''}" data-open="${esc(t.TaskID)}" data-id="${esc(t.TaskID)}" draggable="${canStatus(t)}">
-    <div class="tcard-top"><span class="prio ${prioCls(t.Priority)}">${esc(t.Priority)}</span>
-      ${t.Type && t.Type !== 'One-time' ? `<span class="tag">${esc(t.Type)}</span>` : ''}</div>
     <div class="tcard-title">${esc(t.Title)}</div>
-    <div class="tcard-meta"><span>${esc(userName(t.AssignedTo))}</span><span class="${od ? 'txt-bad' : ''}">${esc(dueText(t))}</span></div>
+    <div class="tcard-tags">
+      ${proj ? `<span class="proj">${esc(proj)}</span>` : ''}
+      ${t.Type && t.Type !== 'One-time' ? `<span class="mini-tag">${esc(t.Type)}</span>` : ''}
+      ${Number(t.Revisions) > 0 ? `<span class="mini-tag">Revised ×${esc(t.Revisions)}</span>` : ''}
+    </div>
+    <div class="tcard-meta">
+      <span class="${od ? 'late' : ''}">${esc(dueText(t))}</span>
+      <span class="row" style="gap:8px">${prioBars(t.Priority)}<span class="avatar" title="${esc(userName(t.AssignedTo))}">${esc(initials(userName(t.AssignedTo)))}</span></span>
+    </div>
   </div>`;
 }
 
@@ -819,7 +1026,7 @@ function meetingParams() {
 }
 async function viewMeeting() {
   const params = meetingParams(), w = S.mw;
-  setTop(isMgr() ? 'Weekly Meeting' : 'My Weekly Score');
+  setTop(isMgr() ? 'Weekly Review' : 'My Weekly Score');
   const r = await fetchSWR('meeting', 'weeklyScores', params, viewMeeting);
   if (!r || S.view !== 'meeting') return;
   S.mData = r;
@@ -840,6 +1047,41 @@ async function viewMeeting() {
     : r.live ? '<span class="badge st-open">Live · to date</span>' : '<span class="badge st-pending">Not frozen</span>';
   const depts = [...new Set(r.rows.map(x => x.Department).filter(Boolean))];
 
+  // Hero: score ring + leaderboard (employees with planned work only)
+  const C = 2 * Math.PI * 54;
+  const ringDash = teamScore === '' ? '0 ' + C.toFixed(1) : (C * Math.max(0, Math.min(100, teamScore)) / 100).toFixed(1) + ' ' + C.toFixed(1);
+  const withTarget = rows.filter(x => targetResult(x).label);
+  const met = withTarget.filter(x => targetResult(x).label === 'Met').length;
+  const revTotal = sum('Revisions');
+  const lbRows = rows.filter(x => Number(x.Planned) > 0);
+  const prevTeam = (() => {                                   // last week's team score from the trend data
+    let pp = 0, oo = 0, wk = '';
+    Object.keys(r.trend).forEach(uid => {
+      if (w.dept && !rows.some(x => x.UserID === uid)) return;
+      const t = r.trend[uid], lastPt = t && t[t.length - 1];
+      if (!lastPt || !(Number(lastPt.p) > 0)) return;
+      if (wk && lastPt.week !== wk) return;
+      wk = lastPt.week; pp += Number(lastPt.p); oo += Number(lastPt.p) * (100 + Number(lastPt.late)) / 100;
+    });
+    return pp ? Math.round(oo / pp * 1000) / 10 : '';
+  })();
+  const teamDelta = teamScore !== '' && prevTeam !== '' ? Math.round((teamScore - prevTeam) * 10) / 10 : null;
+  const lbRow = (x, i) => {
+    const s = scoreOf(x), c = committedOf(x), res = targetResult(x);
+    const past = (r.trend[x.UserID] || []).filter(p => Number(p.p) > 0);
+    const prev = past.length ? 100 + Number(past[past.length - 1].late) : null;
+    const d = prev === null || s === '' ? null : Math.round(s - prev);
+    return `<li class="lb-row">
+      <span class="lb-rank">${i + 1}</span>
+      <span class="avatar">${esc(initials(x.Name))}</span>
+      <span class="lb-name"><b>${esc(x.Name)}</b><span>${esc(x.Department ? x.Department + ' · ' : '')}${x.OnTime} of ${x.Planned} on time</span></span>
+      <span class="lb-bar"><span style="width:${Math.max(0, Math.min(100, s || 0))}%"></span>${c === '' ? '' : `<i style="left:${Math.max(0, Math.min(100, c))}%" title="Committed ${esc(fmtPct(c))}"></i>`}</span>
+      <span class="lb-score">${fmtPct(s)}</span>
+      ${res.label ? `<span class="badge ${res.cls}">${res.label}</span>` : '<span class="faint small">No target</span>'}
+      <span class="lb-delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d === null ? '—' : (d > 0 ? '▲ ' : d < 0 ? '▼ ' : '') + Math.abs(d)}</span>
+    </li>`;
+  };
+
   $('#page').innerHTML = `
     <div class="week-bar">
       <button class="icon-btn" id="wPrev" aria-label="Previous week">${IC.left}</button>
@@ -855,15 +1097,29 @@ async function viewMeeting() {
       ${isMgr() ? `<button class="btn btn-primary btn-sm" id="wPresent">${IC.screen} Present</button>` : ''}
     </div>
 
-    <div class="kpis">
-      <div class="card kpi accent"><div class="kpi-label">Score</div><div class="kpi-value">${fmtPct(teamScore)}</div><div class="kpi-sub">${isMgr() ? 'Team' : 'You'} · ${O}/${P} on time</div></div>
-      <div class="card kpi"><div class="kpi-label">% Work Not Done</div><div class="kpi-value">${fmtPct(teamNd)}</div><div class="kpi-sub">${D}/${P} done</div></div>
-      <div class="card kpi"><div class="kpi-label">% Not Done On Time</div><div class="kpi-value">${fmtPct(teamLate)}</div><div class="kpi-sub">${P} planned</div></div>
-      <div class="card kpi"><div class="kpi-label">Avg Delay</div><div class="kpi-value">${avgDelay}<span class="small muted"> days</span></div></div>
-      <div class="card kpi ${r.overdue.length ? 'alert' : ''}"><div class="kpi-label">Open Overdue</div><div class="kpi-value">${r.overdue.length}</div></div>
+    <div class="rv-hero">
+      <section class="card rv-score" aria-label="${isMgr() ? 'Team' : 'Your'} score">
+        <div class="ring">
+          <svg viewBox="0 0 128 128" role="img" aria-label="Score ${esc(fmtPct(teamScore))}"><circle class="track" cx="64" cy="64" r="54"/><circle class="val" cx="64" cy="64" r="54" stroke-dasharray="${ringDash}"/></svg>
+          <div class="ring-txt"><b>${fmtPct(teamScore)}</b><span>${isMgr() ? 'Team score' : 'Your score'}</span></div>
+        </div>
+        <p class="rv-note">${O} of ${P} planned tasks done on time${teamDelta === null ? '.' : teamDelta === 0 ? ' — same as the week before.'
+          : ` — <b class="${teamDelta > 0 ? 'txt-ok' : 'txt-bad'}">${Math.abs(teamDelta)} points ${teamDelta > 0 ? 'better' : 'lower'}</b> than the week before.`}</p>
+        <dl class="rv-stats">
+          <div><dt>Commitments met</dt><dd>${withTarget.length ? met + ' / ' + withTarget.length : '—'}</dd></div>
+          <div><dt>% Work not done</dt><dd>${fmtPct(teamNd)}</dd></div>
+          <div><dt>Avg delay</dt><dd>${avgDelay} d</dd></div>
+          <div><dt>Open overdue</dt><dd class="${r.overdue.length ? 'txt-bad' : ''}">${r.overdue.length}</dd></div>
+        </dl>
+      </section>
+      <section class="card lb" aria-label="Leaderboard">
+        <div class="card-head"><h3>Leaderboard</h3><span class="lb-legend"><i></i>Commitment</span></div>
+        ${lbRows.length ? `<ol class="lb-list">${lbRows.map(lbRow).join('')}</ol>` : '<div class="empty small">No planned tasks in this week yet.</div>'}
+      </section>
     </div>
 
-    <div class="card fade-in">
+    <details class="card rv-details fade-in">
+      <summary>Detailed scores <span class="faint small" style="font-weight:400">· ${revTotal} date revisions · weighted and recurring scores</span></summary>
       <div class="tbl-wrap"><table class="tbl scores">
         <thead><tr><th>Employee</th><th class="num">Score</th><th class="num">Committed</th><th>Result</th>
           <th class="num">Planned</th><th class="num">Done</th><th class="num">On Time</th>
@@ -871,7 +1127,7 @@ async function viewMeeting() {
           <th class="num">Avg Delay</th><th class="num">Revisions</th><th class="num">Recurring</th><th>Trend</th></tr></thead>
         <tbody>${rows.map(x => scoreRow(x, r.trend[x.UserID] || [])).join('') || '<tr><td colspan="14" class="empty">No data for this week.</td></tr>'}</tbody>
       </table></div>
-    </div>
+    </details>
 
     ${r.overdue.length ? `<div class="card mt"><div class="card-head"><h3>Open overdue tasks</h3><span class="badge st-bad">${r.overdue.length}</span></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>Employee</th><th>Due</th><th class="num">Days late</th><th class="num">Rev.</th></tr></thead>
@@ -1380,7 +1636,7 @@ function userForm(u, all) {
       <div class="h-sec">Task app access</div>
       <div class="form-grid">
       ${field('Role', `<select class="select" name="Role">${opts(['Member', 'Manager', 'Admin'], d.Role || 'Member')}</select>`, { req: true })}
-      ${field(needPin ? 'PIN' : 'New PIN', `<input class="input" name="PIN" inputmode="numeric" maxlength="6" placeholder="${needPin ? '4–6 digits' : 'Leave blank to keep current'}" />`, { req: needPin })}
+      ${field(needPin ? 'PIN' : 'New PIN', `<input class="input" name="PIN" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="${needPin ? '4 digits' : 'Leave blank to keep current'}" />`, { req: needPin })}
       </div>
     </form>`,
     foot: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save</button>`
@@ -1393,7 +1649,7 @@ function userForm(u, all) {
     if (rec.Name.length < 2) errs.Name = 'Enter a name.';
     if (rec.Phone && !/^[0-9+\-\s]{7,15}$/.test(rec.Phone)) errs.Phone = 'Enter a valid phone number.';
     if (rec.Email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.Email)) errs.Email = 'Enter a valid email address.';
-    if ((needPin || rec.PIN) && !/^\d{4,6}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4–6 digits.';
+    if ((needPin || rec.PIN) && !/^\d{4}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4 digits.';
     if (!showErrors(form, errs)) return;
     if (u) rec.UserID = u.UserID;
     try { await call('saveUser', { record: JSON.stringify(rec), reqId }); toast('Employee saved'); m.close(); refresh(); reloadBoot().catch(() => {}); }
@@ -1625,7 +1881,7 @@ document.addEventListener('click', e => {
 /* Restore session: open instantly with the last saved data, then refresh with ONE call */
 (async function init() {
   const sess = store.get('session'), snap = store.get('boot');
-  if (!(sess && sess.token)) { $('#pin').focus(); return; }
+  if (!(sess && sess.token)) { focusLogin(); return; }
   S.token = sess.token;
   $('#loginView').classList.add('hidden');
   const instant = !!(snap && snap.me);
