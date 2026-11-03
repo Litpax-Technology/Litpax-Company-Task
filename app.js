@@ -352,15 +352,16 @@ async function doLogin(e) {
   const emp = $('#empId').value.trim().toUpperCase(), pin = $('#pin').value.trim(), err = $('#loginErr');
   err.textContent = '';
   if (!emp) { loginError('Enter your Employee ID.', false); if (!TOUCH) $('#empId').focus(); return; }
-  if (!/^\d{4}$/.test(pin)) { loginError('Enter your 4-digit PIN.', false); return; }
+  if (S.needPin && !/^\d{4}$/.test(pin)) { loginError('Enter your 4-digit PIN.', false); return; }
   await busy($('#loginBtn'), async () => {
     try {
-      const r = await api('login', { emp, pin });
-      if (r.ok) store.set('lastEmp', emp);
-      if (!r.ok) { loginError(r.message || 'Login failed.', true); return; }
+      const r = await api('login', S.needPin ? { emp, pin } : { emp });
+      if (r.needPin) { showPin(true); $('#loginErr').textContent = ''; if (!TOUCH) $('#pin').focus(); return; }
+      if (!r.ok) { loginError(r.message || 'Login failed.', S.needPin); return; }
+      store.set('lastEmp', emp);
       S.token = r.token;
       store.set('session', { token: r.token });
-      $('#pin').value = ''; renderPinSlots();
+      showPin(false);
       startApp(r);                     // login already carries all startup data: no extra calls
     } catch (ex) { loginError(ex.message, false); }
   });
@@ -369,6 +370,16 @@ async function doLogin(e) {
 /* ---------------- Login screen: PIN boxes, keypad, greeting ---------------- */
 const TOUCH = window.matchMedia && matchMedia('(pointer: coarse)').matches;
 const PIN_LEN = 4;
+
+/** PIN boxes + keypad only for Admin */
+function showPin(on) {
+  S.needPin = on;
+  $('.pin-field').classList.toggle('hidden', !on);
+  $('#keypad').classList.toggle('hidden', !on);
+  if (!on) $('#pin').value = '';
+  renderPinSlots();
+}
+
 function renderPinSlots() {
   const inp = $('#pin'), v = inp.value.replace(/\D/g, '').slice(0, PIN_LEN);
   if (inp.value !== v) inp.value = v;
@@ -397,13 +408,13 @@ function setGreeting() {
 /** Focus Employee ID when empty, otherwise the PIN. */
 function focusLogin() {
   if (TOUCH) return;
-  ($('#empId').value ? $('#pin') : $('#empId')).focus();
+  (S.needPin ? $('#pin') : $('#empId')).focus();
 }
 (function initLoginUI() {
   const inp = $('#pin');
   $('#empId').value = store.get('lastEmp') || '';
-  $('#empId').addEventListener('input', () => { $('#loginErr').textContent = ''; });
-  $('#empId').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.focus(); } });
+  $('#empId').addEventListener('input', () => { $('#loginErr').textContent = ''; if (S.needPin) showPin(false); });
+  $('#empId').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#loginForm').requestSubmit(); } });
   if (TOUCH) inp.readOnly = true;                  // on phones the keypad is used, so the system keyboard stays closed
   const clearErr = () => { $('#loginErr').textContent = ''; $('.pin-field').classList.remove('error'); };
   inp.addEventListener('input', () => { clearErr(); renderPinSlots(); autoSubmitPin(); });
@@ -421,7 +432,7 @@ function focusLogin() {
     if (navigator.vibrate) { try { navigator.vibrate(8); } catch (x) {} }
   });
   setGreeting();
-  renderPinSlots();
+  showPin(false);
 })();
 
 /** Show the app from startup data (from login, init, or the last session's saved copy). */
@@ -471,6 +482,7 @@ function logout(expired) {
   $('#loginView').classList.remove('hidden');
   $('#modalRoot').innerHTML = '';
   document.body.classList.remove('present');
+  showPin(false);
   if (expired) $('#loginErr').textContent = 'Session expired. Please log in again.';
   setTimeout(focusLogin, 50);
 }
@@ -1618,7 +1630,7 @@ async function viewUsers() {
 
 function userForm(u, all) {
   const d = u || { Role: 'Member' };
-  const needPin = !u || !u.HasAccess;
+ 
   const mgrs = all.filter(x => x.Active && x.HasAccess && x.Role !== 'Member' && (!u || x.UserID !== u.UserID));
   const m = modal({
     title: !u ? 'Add Employee' : u.HasAccess ? 'Edit Employee · ' + u.UserID : 'Give App Access · ' + u.UserID, wide: true,
@@ -1636,7 +1648,7 @@ function userForm(u, all) {
       <div class="h-sec">Task app access</div>
       <div class="form-grid">
       ${field('Role', `<select class="select" name="Role">${opts(['Member', 'Manager', 'Admin'], d.Role || 'Member')}</select>`, { req: true })}
-      ${field(needPin ? 'PIN' : 'New PIN', `<input class="input" name="PIN" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="${needPin ? '4 digits' : 'Leave blank to keep current'}" />`, { req: needPin })}
+      ${field('PIN (Admin only)', `<input class="input" name="PIN" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="${u && u.Role === 'Admin' ? 'Leave blank to keep current' : '4 digits, only for Admin'}" />`, { hint: 'Members and Managers log in with Employee ID only.' })}
       </div>
     </form>`,
     foot: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save</button>`
@@ -1649,7 +1661,8 @@ function userForm(u, all) {
     if (rec.Name.length < 2) errs.Name = 'Enter a name.';
     if (rec.Phone && !/^[0-9+\-\s]{7,15}$/.test(rec.Phone)) errs.Phone = 'Enter a valid phone number.';
     if (rec.Email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.Email)) errs.Email = 'Enter a valid email address.';
-    if ((needPin || rec.PIN) && !/^\d{4}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4 digits.';
+    if (rec.PIN && !/^\d{4}$/.test(rec.PIN)) errs.PIN = 'PIN must be 4 digits.';
+    if (rec.Role === 'Admin' && !rec.PIN && !(u && u.Role === 'Admin')) errs.PIN = 'Admin needs a 4-digit PIN.';
     if (!showErrors(form, errs)) return;
     if (u) rec.UserID = u.UserID;
     try { await call('saveUser', { record: JSON.stringify(rec), reqId }); toast('Employee saved'); m.close(); refresh(); reloadBoot().catch(() => {}); }
