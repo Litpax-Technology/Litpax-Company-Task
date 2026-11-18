@@ -1894,6 +1894,19 @@ document.addEventListener('click', e => {
 /* Restore session: open instantly with the last saved data, then refresh with ONE call */
 (async function init() {
   const sess = store.get('session'), snap = store.get('boot');
+
+  // Litpax Suite ke andar (Admin login): ID/PIN ke bina seedha Admin
+  let suiteTok = '';
+  try { if (window.parent !== window) suiteTok = sessionStorage.getItem('suite_token') || ''; } catch (e) {}
+  if (suiteTok && !(sess && sess.token && snap && snap.me && snap.me.role === 'Admin')) {
+    try {
+      const r = await api('suiteLogin', { suiteToken: suiteTok });
+      if (r && r.ok) { S.token = r.token; store.set('session', { token: r.token }); startApp(r); }
+      else { focusLogin(); if (r && r.message) $('#loginErr').textContent = r.message; }
+    } catch (e) { focusLogin(); $('#loginErr').textContent = e.message; }
+    return;
+  }
+
   if (!(sess && sess.token)) { focusLogin(); return; }
   S.token = sess.token;
   $('#loginView').classList.add('hidden');
